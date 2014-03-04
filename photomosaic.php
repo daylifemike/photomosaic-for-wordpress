@@ -1,11 +1,12 @@
 <?php
 /*
-Plugin Name: PhotoMosaic
+Plugin Name: PhotoMosaic for WordPress
 Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makfak
 Description: Adds a new display template for your WordPress and NextGen galleries. See the <a href="/wp-admin/admin.php?page=photomosaic">options page</a> for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.5.2
+Version: 2.5.3
+GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
 if(preg_match('#' . basename(__FILE__) . '#', $_SERVER['PHP_SELF'])) { 
@@ -13,6 +14,7 @@ if(preg_match('#' . basename(__FILE__) . '#', $_SERVER['PHP_SELF'])) {
 }
 
 add_action('init', array('PhotoMosaic', 'init'));
+add_action( 'plugins_loaded', array( 'PhotoMosaic', 'includeGitHubUpdater' ) );
 
 class PhotoMosaic {
 
@@ -20,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.5.2';
+        return '2.5.3';
     }
 
     public static function comparable_version ($version) {
@@ -42,24 +44,18 @@ class PhotoMosaic {
         add_filter( 'content_edit_pre', array( __CLASS__, 'scrub_post_shortcodes' ), 1337, 2 ); // template="pm" --> theme="pm"
         add_filter( 'plugin_action_links', array( __CLASS__, 'plugin_action_links' ), 10, 2);
 
-        add_action( 'admin_menu', array('PhotoMosaic', 'setupAdminPage') );
-        add_action( 'wp_ajax_photomosaic_whatsnew', array('PhotoMosaic', 'ajaxHandler') );
+        add_action( 'admin_menu', array( __CLASS__, 'setupAdminPage') );
+        add_action( 'wp_ajax_photomosaic_whatsnew', array( __CLASS__, 'ajaxHandler') );
 
-        wp_register_script( 'photomosaic', plugins_url('/js/jquery.photoMosaic.js', __FILE__ ));
+        wp_register_script( 'photomosaic', plugins_url('/js/photomosaic.js', __FILE__ ), array('jquery'));
         wp_enqueue_script('photomosaic');
 
-        wp_enqueue_style( 'photomosaic_base_css', plugins_url('/css/photoMosaic.css', __FILE__ ));
+        wp_enqueue_style( 'photomosaic_base_css', plugins_url('/css/photomosaic.css', __FILE__ ));
 
         if (!is_admin()) {
             if($options['lightbox']) {
-                wp_enqueue_style( 'photomosaic_prettyphoto_css', plugins_url('/includes/prettyPhoto/prettyPhoto.css', __FILE__ ));
-
-                // for testing - comment out in jquery.photoMosaic.js
-                // wp_enqueue_script( 'photomosaic_prettyphoto_js', plugins_url('/includes/prettyPhoto/jquery.prettyPhoto.js', __FILE__ ), array('photomosaic'));
+                wp_enqueue_style( 'photomosaic_prettyphoto_css', plugins_url('/includes/vendor/prettyPhoto/prettyPhoto.css', __FILE__ ));
             }
-
-            // for testing - comment out in jquery.photoMosaic.js
-            // wp_enqueue_script( 'photomosaic_jstween_js', plugins_url('/includes/jstween-1.1.js', __FILE__ ), array('photomosaic'));
 
             add_shortcode( 'photoMosaic', array( __CLASS__, 'shortcode' ) );
             add_shortcode( 'photomosaic', array( __CLASS__, 'shortcode' ) );
@@ -67,19 +63,24 @@ class PhotoMosaic {
         } else {
             if ( isset($_GET['page']) ) {
                 if ( $_GET['page'] == "photoMosaic.php" || $_GET['page'] == "photomosaic" ) {
-                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/jquery.photoMosaic.wp.admin.js', __FILE__ ), array('photomosaic'));
-                    wp_enqueue_style( 'photomosaic_admin_css', plugins_url('/css/photoMosaic.admin.css', __FILE__ ));
+                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic'));
+                    wp_enqueue_style( 'photomosaic_admin_css', plugins_url('/css/photomosaic.admin.css', __FILE__ ));
                 }
             }
 
-            if (
-                    isset( $_GET['post'] ) ||
-                    in_array( $pagenow, array( 'post-new.php' ) )
-            ) {
-                wp_enqueue_script( 'photomosaic_editor_js', plugins_url('/js/jquery.photoMosaic.editor.js', __FILE__ ), array('photomosaic'));
+            if ( isset( $_GET['post'] ) || in_array( $pagenow, array( 'post-new.php' ) ) ) {
+                wp_enqueue_script( 'photomosaic_editor_js', plugins_url('/js/photomosaic.editor.js', __FILE__ ), array('photomosaic'));
             }
 
-            wp_enqueue_style( 'menu', plugins_url('/css/photoMosaic.menu.css', __FILE__ ));
+            wp_enqueue_style( 'menu', plugins_url('/css/photomosaic.menu.css', __FILE__ ));
+        }
+    }
+
+    public static function includeGitHubUpdater () {
+        if ( !(isset($_GET['action']) && $_GET['action'] == 'activate') ) {
+            if ( !class_exists('GitHub_Plugin_Updater') ) {
+                require_once( 'includes/vendor/github-updater/github-updater.php' );
+            }
         }
     }
 
@@ -736,7 +737,9 @@ class PhotoMosaic {
     }
 
     public static function renderAdminPage() {
-        require_once( 'includes/Markdown.php' );
+        if ( !class_exists('MarkdownExtra_Parser') ) {
+            require_once( 'includes/Markdown.php' );
+        }
         $options = PhotoMosaic::getOptions();
         $options = PhotoMosaic::adjustDeprecatedOptions($options);
         ?>
