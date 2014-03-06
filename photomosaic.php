@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the <a href="/wp-admin/admin.php?page=photomosaic">options page</a> for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.5.3
+Version: 2.6
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -14,7 +14,7 @@ if(preg_match('#' . basename(__FILE__) . '#', $_SERVER['PHP_SELF'])) {
 }
 
 add_action('init', array('PhotoMosaic', 'init'));
-add_action( 'plugins_loaded', array( 'PhotoMosaic', 'includeGitHubUpdater' ) );
+add_action( 'plugins_loaded', array( 'PhotoMosaic', 'include_github_updater' ) );
 
 class PhotoMosaic {
 
@@ -22,15 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.5.3';
-    }
-
-    public static function comparable_version ($version) {
-        $v = explode('.', $version);
-        if ( !isset( $v[2] ) ) {
-            $v[2] = 0;
-        }
-        return ($v[0] * 10000 + $v[1] * 100 + $v[2]);
+        return '2.6';
     }
 
     public static function init() {
@@ -44,11 +36,11 @@ class PhotoMosaic {
         add_filter( 'content_edit_pre', array( __CLASS__, 'scrub_post_shortcodes' ), 1337, 2 ); // template="pm" --> theme="pm"
         add_filter( 'plugin_action_links', array( __CLASS__, 'plugin_action_links' ), 10, 2);
 
-        add_action( 'admin_menu', array( __CLASS__, 'setupAdminPage') );
-        add_action( 'wp_ajax_photomosaic_whatsnew', array( __CLASS__, 'ajaxHandler') );
+        add_action( 'admin_menu', array( __CLASS__, 'setup_admin_page') );
+        add_action( 'wp_ajax_photomosaic_whatsnew', array( __CLASS__, 'ajax_handler') );
 
-        wp_register_script( 'photomosaic', plugins_url('/js/photomosaic.js', __FILE__ ), array('jquery'));
-        wp_enqueue_script('photomosaic');
+        wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.min.js', __FILE__ ), array('jquery'));
+        wp_enqueue_script('photomosaic_js');
 
         wp_enqueue_style( 'photomosaic_base_css', plugins_url('/css/photomosaic.css', __FILE__ ));
 
@@ -62,29 +54,19 @@ class PhotoMosaic {
 
         } else {
             if ( isset($_GET['page']) ) {
-                if ( $_GET['page'] == "photoMosaic.php" || $_GET['page'] == "photomosaic" ) {
-                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic'));
+                if ( $_GET['page'] == "photoMosaic.php" || $_GET['page'] == "photomosaic.php"  || $_GET['page'] == "photomosaic" ) {
+                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic_js'));
                     wp_enqueue_style( 'photomosaic_admin_css', plugins_url('/css/photomosaic.admin.css', __FILE__ ));
                 }
             }
 
             if ( isset( $_GET['post'] ) || in_array( $pagenow, array( 'post-new.php' ) ) ) {
-                wp_enqueue_script( 'photomosaic_editor_js', plugins_url('/js/photomosaic.editor.js', __FILE__ ), array('photomosaic'));
-            }
-
-            wp_enqueue_style( 'menu', plugins_url('/css/photomosaic.menu.css', __FILE__ ));
-        }
-    }
-
-    public static function includeGitHubUpdater () {
-        if ( !(isset($_GET['action']) && $_GET['action'] == 'activate') ) {
-            if ( !class_exists('GitHub_Plugin_Updater') ) {
-                require_once( 'includes/vendor/github-updater/github-updater.php' );
+                wp_enqueue_script( 'photomosaic_editor_js', plugins_url('/js/photomosaic.editor.js', __FILE__ ), array('photomosaic_js'));
             }
         }
     }
 
-    public static function getOptions() {
+    public static function get_options() {
         $defaults = array(
             'padding' => 2,
             'columns' => 0,
@@ -121,7 +103,7 @@ class PhotoMosaic {
         return $options;
     }
 
-    public static function adjustDeprecatedOptions($options) {
+    public static function adjust_deprecated_options($options) {
         // 'random' & 'force_order' - v2.2
         if (array_key_exists('random', $options)) {
             if ($options['random']) {
@@ -167,12 +149,6 @@ class PhotoMosaic {
         return $options;
     }
 
-    public static function ajaxHandler () {
-        // not currently being used
-        $options = PhotoMosaic::getOptions();
-        die(json_encode($options));
-    }
-
     public static function shortcode( $atts ) {
         global $post;
         $post_id = intval($post->ID);
@@ -182,7 +158,7 @@ class PhotoMosaic {
             'exclude'   => '',
             'ids'       => ''
         );
-        $options = PhotoMosaic::getOptions();
+        $options = PhotoMosaic::get_options();
         $options = wp_parse_args($base, $options);
         $settings = wp_parse_args($atts, $options);
 
@@ -235,11 +211,11 @@ class PhotoMosaic {
                 var PMalbum'.$unique.' = [';
 
         if ( !empty($atts['nggid']) ) {
-            $output_buffer .= PhotoMosaic::galleryFromNextGen($atts['nggid'], $settings['link_behavior'], 'gallery');
+            $output_buffer .= PhotoMosaic::gallery_from_nextgen($atts['nggid'], $settings['link_behavior'], 'gallery');
         } else if ( !empty($atts['ngaid']) ) {
-            $output_buffer .= PhotoMosaic::galleryFromNextGen($atts['ngaid'], $settings['link_behavior'], 'album');
+            $output_buffer .= PhotoMosaic::gallery_from_nextgen($atts['ngaid'], $settings['link_behavior'], 'album');
         } else {
-            $output_buffer .= PhotoMosaic::galleryFromWP($settings['id'], $settings['link_behavior'], $settings['include'], $settings['exclude'], $settings['ids']);
+            $output_buffer .= PhotoMosaic::gallery_from_wordpress($settings['id'], $settings['link_behavior'], $settings['include'], $settings['exclude'], $settings['ids']);
         }
 
         // convert 'link_behavior' to 'links'
@@ -278,7 +254,7 @@ class PhotoMosaic {
                 $atts[$key] = $settings[$key];
             }
         }
-        $output_buffer .= PhotoMosaic::getSizeObj($atts);
+        $output_buffer .= PhotoMosaic::get_size_object($atts);
 
         if( $settings['lightbox'] == 'true' || $settings['custom_lightbox'] == 'true' ) {
             if( $settings['lightbox'] == 'true' ) {
@@ -342,6 +318,7 @@ class PhotoMosaic {
             $output_buffer .= apply_filters( 'gallery_style', $gallery_style . "\n\t\t" . $gallery_div );
         } else {
             $output_buffer .= $gallery_div;
+            $output_buffer .= PhotoMosaic::wordpress_gallery_shortcode($atts);
         }
 
         $output_buffer .='</div>';
@@ -349,7 +326,7 @@ class PhotoMosaic {
         return preg_replace('/\s+/', ' ', $output_buffer);
     }
 
-    public static function galleryFromWP($id, $link_behavior, $include, $exclude, $ids, $return_img_obj = false) {
+    public static function gallery_from_wordpress($id, $link_behavior, $include, $exclude, $ids, $return_img_obj = false) {
         global $wp_version;
 
         $output_buffer = '';
@@ -479,7 +456,7 @@ class PhotoMosaic {
         return $output_buffer;
     }
 
-    public static function galleryFromNextGen($id, $link_behavior, $type) {
+    public static function gallery_from_nextgen($id, $link_behavior, $type) {
         global $wpdb, $post;
         $pattern = PhotoMosaic::$URL_PATTERN;
         $picturelist = array();
@@ -546,7 +523,7 @@ class PhotoMosaic {
         return $output_buffer;
     }
 
-    public static function getSizeObj($atts) {
+    public static function get_size_object($atts) {
         // we want to ignore thumbnails if they all have the same aspect ratio
         $images = array();
         $widths = array();
@@ -559,7 +536,7 @@ class PhotoMosaic {
 
         if ( empty($atts['nggid']) && empty($atts['ngaid']) ) {
             // it's a WP gallery
-            $images = PhotoMosaic::galleryFromWP($atts['id'], $atts['link_behavior'], $atts['include'], $atts['exclude'], $atts['ids'], true);
+            $images = PhotoMosaic::gallery_from_wordpress($atts['id'], $atts['link_behavior'], $atts['include'], $atts['exclude'], $atts['ids'], true);
 
             foreach ( $images as $_post ) {
                 $image_thumbnail = wp_get_attachment_image_src($_post->ID , 'thumbnail');
@@ -622,25 +599,6 @@ class PhotoMosaic {
         return $output;
     }
 
-    public static function the_posts( $posts ) {
-        // ok...
-        // currently we load the JS and CSS on every non-admin page regardless if there is a mosaic
-        // checks here could be used to only enqueue PM when needed
-        // that's probably a good thing
-        foreach( $posts as $post ) {
-            if ( preg_match_all( '/\[gallery.*\]/', $post->post_content, $matches ) ) {
-                foreach ( $matches[0] as $match ) {
-                    // print_r($match);
-                    // print_r('<br>');
-                    if ( strpos( $match, 'photomosaic="true"' ) !== false || strpos( $match, "photomosaic='true'" ) !== false) {
-                        // print_r('YUP!!! <br>');
-                    }
-                }
-            }
-        }
-        return $posts;
-    }
-
     public static function post_gallery( $empty = '', $atts = array() ) {
         global $post;
 
@@ -686,9 +644,9 @@ class PhotoMosaic {
         return $content;
     }
 
-    public static function setupAdminPage() {
+    public static function setup_admin_page() {
         if(isset($_POST['photomosaic_save'])) {
-            $options = PhotoMosaic::getOptions();
+            $options = PhotoMosaic::get_options();
 
             foreach ($options as $k => $v) {
                 if ( !array_key_exists($k, $_POST) ) {
@@ -711,37 +669,22 @@ class PhotoMosaic {
         }
 
         add_menu_page(
-            'PhotoMosaic v' . PhotoMosaic::version(),
-            'PhotoMosaic',
-            'update_plugins',
-            'photomosaic', // basename(__FILE__) == 'photoMosaic.php'
-            array('PhotoMosaic', 'renderAdminPage'),
-            'div'
+            'PhotoMosaic v' . PhotoMosaic::version(), // page tite
+            'PhotoMosaic', // menu title
+            'update_plugins', // capability
+            'photomosaic', // menu slug
+            array('PhotoMosaic', 'render_admin_page'), // function
+            plugins_url('/images/admin-page-icon.gif', __FILE__ ) // icon url
+            // position
         );
     }
 
-    public static function plugin_action_links($links, $file) {
-        // http://wp.smashingmagazine.com/2011/03/08/ten-things-every-wordpress-plugin-developer-should-know/
-        static $this_plugin;
-
-        if (!$this_plugin) {
-            $this_plugin = plugin_basename(__FILE__);
-        }
-
-        if ($file == $this_plugin) {
-            $settings_link = '<a href="' . get_bloginfo('wpurl') . '/wp-admin/admin.php?page=photomosaic">Settings</a>';
-            array_unshift($links, $settings_link);
-        }
-
-        return $links;
-    }
-
-    public static function renderAdminPage() {
+    public static function render_admin_page() {
         if ( !class_exists('MarkdownExtra_Parser') ) {
             require_once( 'includes/Markdown.php' );
         }
-        $options = PhotoMosaic::getOptions();
-        $options = PhotoMosaic::adjustDeprecatedOptions($options);
+        $options = PhotoMosaic::get_options();
+        $options = PhotoMosaic::adjust_deprecated_options($options);
         ?>
         <script>
             if (!window.PhotoMosaic) {
@@ -783,6 +726,212 @@ class PhotoMosaic {
 
         </div>
         <?php
+    }
+
+    public static function plugin_action_links($links, $file) {
+        // http://wp.smashingmagazine.com/2011/03/08/ten-things-every-wordpress-plugin-developer-should-know/
+        static $this_plugin;
+
+        if (!$this_plugin) {
+            $this_plugin = plugin_basename(__FILE__);
+        }
+
+        if ($file == $this_plugin) {
+            $settings_link = '<a href="' . get_bloginfo('wpurl') . '/wp-admin/admin.php?page=photomosaic">Settings</a>';
+            array_unshift($links, $settings_link);
+        }
+
+        return $links;
+    }
+
+    public static function include_github_updater () {
+        if ( !(isset($_GET['action']) && $_GET['action'] == 'activate') ) {
+            if ( !class_exists('GitHub_Plugin_Updater') ) {
+                require_once( 'includes/vendor/github-updater/github-updater.php' );
+            }
+        }
+    }
+
+    public static function wordpress_gallery_shortcode($attr) {
+        // this function is taken directly from the WP (3.8.1) core (wp-includes/media.php#gallery_shortcode)
+        // with the exception of commenting-out the post_gallery filter call
+        $post = get_post();
+
+        static $instance = 0;
+        $instance++;
+
+        if ( ! empty( $attr['ids'] ) ) {
+            // 'ids' is explicitly ordered, unless you specify otherwise.
+            if ( empty( $attr['orderby'] ) )
+                $attr['orderby'] = 'post__in';
+            $attr['include'] = $attr['ids'];
+        }
+
+        // !!! THIS IS THE ONLY CHANGE - COMMENTED OUT !!!
+        // Allow plugins/themes to override the default gallery template.
+        // $output = apply_filters('post_gallery', '', $attr);
+        // if ( $output != '' )
+        //     return $output;
+
+        // We're trusting author input, so let's at least make sure it looks like a valid orderby statement
+        if ( isset( $attr['orderby'] ) ) {
+            $attr['orderby'] = sanitize_sql_orderby( $attr['orderby'] );
+            if ( !$attr['orderby'] )
+                unset( $attr['orderby'] );
+        }
+
+        extract(shortcode_atts(array(
+            'order'      => 'ASC',
+            'orderby'    => 'menu_order ID',
+            'id'         => $post ? $post->ID : 0,
+            'itemtag'    => 'dl',
+            'icontag'    => 'dt',
+            'captiontag' => 'dd',
+            'columns'    => 3,
+            'size'       => 'thumbnail',
+            'include'    => '',
+            'exclude'    => '',
+            'link'       => ''
+        ), $attr, 'gallery'));
+
+        $id = intval($id);
+        if ( 'RAND' == $order )
+            $orderby = 'none';
+
+        if ( !empty($include) ) {
+            $_attachments = get_posts( array('include' => $include, 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $order, 'orderby' => $orderby) );
+
+            $attachments = array();
+            foreach ( $_attachments as $key => $val ) {
+                $attachments[$val->ID] = $_attachments[$key];
+            }
+        } elseif ( !empty($exclude) ) {
+            $attachments = get_children( array('post_parent' => $id, 'exclude' => $exclude, 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $order, 'orderby' => $orderby) );
+        } else {
+            $attachments = get_children( array('post_parent' => $id, 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $order, 'orderby' => $orderby) );
+        }
+
+        if ( empty($attachments) )
+            return '';
+
+        if ( is_feed() ) {
+            $output = "\n";
+            foreach ( $attachments as $att_id => $attachment )
+                $output .= wp_get_attachment_link($att_id, $size, true) . "\n";
+            return $output;
+        }
+
+        $itemtag = tag_escape($itemtag);
+        $captiontag = tag_escape($captiontag);
+        $icontag = tag_escape($icontag);
+        $valid_tags = wp_kses_allowed_html( 'post' );
+        if ( ! isset( $valid_tags[ $itemtag ] ) )
+            $itemtag = 'dl';
+        if ( ! isset( $valid_tags[ $captiontag ] ) )
+            $captiontag = 'dd';
+        if ( ! isset( $valid_tags[ $icontag ] ) )
+            $icontag = 'dt';
+
+        $columns = intval($columns);
+        $itemwidth = $columns > 0 ? floor(100/$columns) : 100;
+        $float = is_rtl() ? 'right' : 'left';
+
+        $selector = "gallery-{$instance}";
+
+        $gallery_style = $gallery_div = '';
+        if ( apply_filters( 'use_default_gallery_style', true ) )
+            $gallery_style = "
+            <style type='text/css'>
+                #{$selector} {
+                    margin: auto;
+                }
+                #{$selector} .gallery-item {
+                    float: {$float};
+                    margin-top: 10px;
+                    text-align: center;
+                    width: {$itemwidth}%;
+                }
+                #{$selector} img {
+                    border: 2px solid #cfcfcf;
+                }
+                #{$selector} .gallery-caption {
+                    margin-left: 0;
+                }
+                /* see gallery_shortcode() in wp-includes/media.php */
+            </style>";
+        $size_class = sanitize_html_class( $size );
+        $gallery_div = "<div id='$selector' class='gallery galleryid-{$id} gallery-columns-{$columns} gallery-size-{$size_class}'>";
+        $output = apply_filters( 'gallery_style', $gallery_style . "\n\t\t" . $gallery_div );
+
+        $i = 0;
+        foreach ( $attachments as $id => $attachment ) {
+            if ( ! empty( $link ) && 'file' === $link )
+                $image_output = wp_get_attachment_link( $id, $size, false, false );
+            elseif ( ! empty( $link ) && 'none' === $link )
+                $image_output = wp_get_attachment_image( $id, $size, false );
+            else
+                $image_output = wp_get_attachment_link( $id, $size, true, false );
+
+            $image_meta  = wp_get_attachment_metadata( $id );
+
+            $orientation = '';
+            if ( isset( $image_meta['height'], $image_meta['width'] ) )
+                $orientation = ( $image_meta['height'] > $image_meta['width'] ) ? 'portrait' : 'landscape';
+
+            $output .= "<{$itemtag} class='gallery-item'>";
+            $output .= "
+                <{$icontag} class='gallery-icon {$orientation}'>
+                    $image_output
+                </{$icontag}>";
+            if ( $captiontag && trim($attachment->post_excerpt) ) {
+                $output .= "
+                    <{$captiontag} class='wp-caption-text gallery-caption'>
+                    " . wptexturize($attachment->post_excerpt) . "
+                    </{$captiontag}>";
+            }
+            $output .= "</{$itemtag}>";
+            if ( $columns > 0 && ++$i % $columns == 0 )
+                $output .= '<br style="clear: both" />';
+        }
+
+        $output .= "
+                <br style='clear: both;' />
+            </div>\n";
+
+        return $output;
+    }
+
+    public static function the_posts( $posts ) {
+        // ok...
+        // currently we load the JS and CSS on every non-admin page regardless if there is a mosaic
+        // checks here could be used to only enqueue PM when needed
+        // that's probably a good thing
+        foreach( $posts as $post ) {
+            if ( preg_match_all( '/\[gallery.*\]/', $post->post_content, $matches ) ) {
+                foreach ( $matches[0] as $match ) {
+                    // print_r($match);
+                    // print_r('<br>');
+                    if ( strpos( $match, 'photomosaic="true"' ) !== false || strpos( $match, "photomosaic='true'" ) !== false) {
+                        // print_r('YUP!!! <br>');
+                    }
+                }
+            }
+        }
+        return $posts;
+    }
+
+    public static function ajax_handler () {
+        // not currently being used
+        $options = PhotoMosaic::get_options();
+        die(json_encode($options));
+    }
+
+    public static function comparable_version ($version) {
+        $v = explode('.', $version);
+        if ( !isset( $v[2] ) ) {
+            $v[2] = 0;
+        }
+        return ($v[0] * 10000 + $v[1] * 100 + $v[2]);
     }
 
 } // end PhotoMosaic
