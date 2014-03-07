@@ -1,8 +1,12 @@
 ### What's New
 
+#### 2.6.1
+- Change: uses jQuery.Migrate.sub() to create an isolated jQuery instance (JQPM)
+- Bug Fix: corrects filename capitalization
+
 #### 2.6
 - Enhancement: minified JS is now 60% smaller
-- Enhancement: fallsback to the default [gallery] layout for uses with JS turned off or for pages with JS errors
+- Enhancement: falls back to the default [gallery] layout for users with JS turned off or for pages with JS errors
 - Enhancement: updates ImagesLoaded to v3.1.4
 - Change: updates admin icon to the new WP3.8 style
 - Bug Fix: corrects the check that looks for a preexisting 'theme' select
