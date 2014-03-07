@@ -3970,6 +3970,7 @@ PhotoMosaic.Inputs = (function ($){
             modal_name : null,
             modal_group : true,
             modal_ready_callback : null,
+            lazyload : 0, // int || false
             log_gallery_data : false
             // random : false (deprecated: v2.2)
             // force_order : false (deprecated: v2.2)
@@ -4057,7 +4058,7 @@ PhotoMosaic.Inputs = (function ($){
                 this.render();
             } else {
                 $.when(this.preloadify()).then(function () {
-                    self.opts.gallery = self.prepData(self.opts.gallery);
+                    self.opts.gallery = self.prepData(self.opts.gallery, true);
                     self.render();
                 });
             }
@@ -4116,7 +4117,6 @@ PhotoMosaic.Inputs = (function ($){
                     };
 
                     self.refresh();
-
                 })
                 .always( function (instance) {
                     // after all images have been either loaded or confirmed broken
