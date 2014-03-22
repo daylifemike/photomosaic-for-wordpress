@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the <a href="/wp-admin/admin.php?page=photomosaic">options page</a> for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.6.3
+Version: 2.6.4
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -22,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.6.3';
+        return '2.6.4';
     }
 
     public static function init() {
@@ -396,9 +396,9 @@ class PhotoMosaic {
                 $image_large = wp_get_attachment_image_src($_post->ID , 'large');
                 $image_medium = wp_get_attachment_image_src($_post->ID , 'medium');
                 $image_thumbnail = wp_get_attachment_image_src($_post->ID , 'thumbnail');
-                $image_title = esc_attr($_post->post_title);
-                $image_alttext = esc_attr(get_post_meta($_post->ID, '_wp_attachment_image_alt', true));
-                $image_caption = esc_attr($_post->post_excerpt);
+                $image_title = PhotoMosaic::esc_attr($_post->post_title);
+                $image_alttext = PhotoMosaic::esc_attr(get_post_meta($_post->ID, '_wp_attachment_image_alt', true));
+                $image_caption = PhotoMosaic::esc_attr($_post->post_excerpt);
                 $image_description = $_post->post_content; // this is where we hide a link_url
                 $image_attachment_page = get_attachment_link($_post->ID); // url for attachment page
 
@@ -485,18 +485,18 @@ class PhotoMosaic {
             // is the description a URL
             if ( $link_behavior === 'custom' && preg_match("#$pattern#i", $image_description) ) {
                 $url_data = ',"url": "' . $image_description . '"';
-                $image_description = esc_attr($image_alttext);
+                $image_description = PhotoMosaic::esc_attr($image_alttext);
                 $image_alttext = $image_description;
 
             } elseif ( $link_behavior === 'custom' && preg_match("#$pattern#i", $image_alttext) ) {
                 $url_data = ',"url": "' . $image_alttext . '"';
-                $image_description = esc_attr($image_description);
+                $image_description = PhotoMosaic::esc_attr($image_description);
                 $image_alttext = $image_description;
 
             } else {
                 $url_data = '';
-                $image_description = esc_attr($image_description);
-                $image_alttext = esc_attr($image_alttext);
+                $image_description = PhotoMosaic::esc_attr($image_description);
+                $image_alttext = PhotoMosaic::esc_attr($image_alttext);
             }
 
             $output_buffer .='{
@@ -931,6 +931,13 @@ class PhotoMosaic {
             $v[2] = 0;
         }
         return ($v[0] * 10000 + $v[1] * 100 + $v[2]);
+    }
+
+    private static function esc_attr( $text ) {
+        // lifted from wp-includes/formatting.php # esc_attr
+        $safe_text = wp_check_invalid_utf8( $text );
+        $safe_text = _wp_specialchars( $safe_text, "double" );
+        return apply_filters( 'attribute_escape', $safe_text, $text );
     }
 
 } // end PhotoMosaic
