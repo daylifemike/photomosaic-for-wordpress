@@ -40,11 +40,12 @@
     registerNamespace('PhotoMosaic.$', $sub || {});
     registerNamespace('PhotoMosaic.Utils');
     registerNamespace('PhotoMosaic.Inputs');
+    registerNamespace('PhotoMosaic.Loader');
     registerNamespace('PhotoMosaic.Layouts');
     registerNamespace('PhotoMosaic.Plugins');
     registerNamespace('PhotoMosaic.ErrorChecks');
     registerNamespace('PhotoMosaic.Mosaics', []);
-    registerNamespace('PhotoMosaic.version', '2.6.4');
+    registerNamespace('PhotoMosaic.version', '2.7');
 
 }(jQuery, window));
 /*
@@ -3334,12 +3335,14 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
                     height:pp_dimensions['contentHeight'],
                     width:pp_dimensions['contentWidth']
                 },settings.animation_speed);
-            
+
+            var halfWidth = (windowWidth/2) - (pp_dimensions['containerWidth']/2);
+
             // Resize picture the holder
             $pp_pic_holder.animate({
                 'top': projectedTop,
-                'left': ((windowWidth/2) - (pp_dimensions['containerWidth']/2) < 0) ? 0 : (windowWidth/2) - (pp_dimensions['containerWidth']/2),
-                width:pp_dimensions['containerWidth']
+                'left': (halfWidth < 0) ? 0 : halfWidth,
+                'width': pp_dimensions['containerWidth']
             },settings.animation_speed,function(){
                 $pp_pic_holder.find('.pp_hoverContainer,#fullResImage').height(pp_dimensions['height']).width(pp_dimensions['width']);
 
@@ -3779,6 +3782,39 @@ PhotoMosaic.Utils = (function(){
             }
         },
 
+        deepSearch : function (obj, key, value) {
+            // recursively traverses an nested arrays, and objects looking for a key/value pair
+            var response = null;
+            var i = 0;
+            var prop;
+
+            if (obj instanceof Array) {
+                for (i = 0; i < obj.length; i++) {
+                    response = this.deepSearch(obj[i], key, value);
+                    if (response) {
+                        return response;
+                    }
+                }
+            } else {
+                if (obj.hasOwnProperty(key) && obj[key] == value) {
+                    return obj
+                } else {
+                    for (prop in obj) {
+                        if (obj.hasOwnProperty(prop)) {
+                            if (obj[prop] instanceof Object || obj[prop] instanceof Array) {
+                                response = this.deepSearch(obj[prop], key, value);
+                                if (response) {
+                                    return response;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return response;
+        },
+
         logGalleryData: function (gallery) {
             var output = [];
             for (var i = 0; i < gallery.length; i++) {
@@ -3925,6 +3961,101 @@ PhotoMosaic.Inputs = (function ($){
     };
 
 }(window.JQPM));
+(function ($) {
+    var self = null;
+
+    PhotoMosaic.Loader = function (images, mosaic) {
+        self = this;
+
+        this.images = images;
+        this.mosaic = mosaic;
+        this.opts = mosaic.opts;
+        this.trigger_point = $.waypoints('viewportHeight') + this.opts.lazyload;
+        this.setWaypoints();
+
+        return this;
+    };
+
+    PhotoMosaic.Loader.prototype = {
+        setWaypoints : function () {
+            this.images.parent().waypoint({
+                triggerOnce : true,
+                offset : this.trigger_point,
+                handler : this.handler
+            });
+        },
+
+        handler : function (direction) {
+            var $this = $(this);
+            var $image = $this.children('img');
+            var image_loaded = null;
+
+            $image.attr('src', $image.attr('data-src'));
+
+            image_loaded = new PhotoMosaic.Plugins.imagesLoaded($image.get(0));
+            image_loaded.on('progress', self.progress);
+            image_loaded.on('fail', self.fail);
+            image_loaded.on('always', self.always);
+        },
+
+        progress : function (instance, image) {
+            // after each image has loaded
+            setTimeout(function () {
+                if ( self.opts.loading_transition === 'none' || PhotoMosaic.Plugins.Modernizr.csstransitions ) {
+                    $(image.img).parents('span.loading, a.loading').removeClass('loading');
+                } else {
+                    $(image.img).animate(
+                        { 'opacity' : '1' },
+                        self.opts.responsive_transition_settings.duration * 1000,
+                        function(){
+                            $(this).parents('span.loading, a.loading').removeClass('loading');
+                        }
+                    );
+                }
+            }, 0);
+        },
+
+        fail : function (instance) {
+            // after all images have been loaded with at least one broken image
+            setTimeout(function () {
+                var id = '';
+                var img = null;
+                var i = 0;
+                var j = 0;
+                for (i = 0; i < instance.images.length; i++) {
+                    if (!instance.images[i].isLoaded) {
+                        $node = $(instance.images[i].img);
+                        id = $node.attr('id');
+                        img = PhotoMosaic.Utils.deepSearch(self.mosaic.images, 'id', id);
+
+                        for (j = 0; j < self.mosaic.images.length; j++) {
+                            if (self.mosaic.images[j] === img) {
+                                self.mosaic.images.splice(j,1);
+                            }
+                        };
+
+                        $node.parent().remove();
+                    }
+                };
+
+                self.mosaic.refresh();
+            }, 0);
+        },
+
+        always : function (instance) {
+            // after all images have been either loaded or confirmed broken
+            setTimeout(function () {
+                var $mosaic = self.mosaic.obj.find('.photoMosaic')
+                var $images = $mosaic.children('a, span'); 
+                var $loading = $images.filter('.loading'); 
+                
+                if ($loading.length == 0) {
+                    $mosaic.removeClass('loading');
+                }
+            }, 0);
+        }
+    };
+}(window.JQPM));
 /*
     PhotoMosaic
     requires: jQuery 1.7+, JSTween 1.1, Mustache, Modernizr, & ImagesLoaded
@@ -4000,7 +4131,7 @@ PhotoMosaic.Inputs = (function ($){
                             '"' +
                         '>' +
                     '{{/link}}' +
-                        '<img id="{{id}}" src="{{src}}" style="' +
+                        '<img id="{{id}}" data-src="{{src}}" style="' +
                             'width:{{#width}}{{adjusted}}{{/width}}px; ' +
                             'height:{{#height}}{{adjusted}}{{/height}}px; ' +
                             '{{#adjustment}}{{type}}:-{{value}}px;{{/adjustment}}" ' +
@@ -4066,62 +4197,22 @@ PhotoMosaic.Inputs = (function ($){
 
         render: function () {
             var self = this;
+            var $images = null;
 
             // var view_model = new PhotoMosaic.Layouts.columns(this.opts.gallery, this.opts);
             // var html = PhotoMosaic.Plugins.Mustache.to_html(this.template, view_model);
             // this.obj.html( html );
             this.obj.html(this.makeMosaic());
 
+            $images = this.obj.find('img');
+
             if ( self.opts.loading_transition !== 'none' && !PhotoMosaic.Plugins.Modernizr.csstransitions ) {
-                this.obj.find('img').css('opacity','0');
+                $images.css('opacity','0');
             }
 
-            this.obj.imagesLoaded()
-                .progress( function (instance, image) {
-                    // after each image has loaded
-                    setTimeout(function () {
-                        if ( self.opts.loading_transition === 'none' || PhotoMosaic.Plugins.Modernizr.csstransitions ) {
-                            $(image.img).parents('span.loading, a.loading').removeClass('loading');
-                        } else {
-                            $(image.img).animate(
-                                { 'opacity' : '1' },
-                                self.opts.responsive_transition_settings.duration * 1000,
-                                function(){
-                                    $(this).parents('span.loading, a.loading').removeClass('loading');
-                                }
-                            );
-                        }
-                    }, 0);
-                })
-                .fail( function (instance) {
-                    // after all images have been loaded with at least one broken image
-                    var id = '';
-                    var img = null;
-                    var i = 0;
-                    var j = 0;
-
-                    for (i = 0; i < instance.images.length; i++) {
-                        if (!instance.images[i].isLoaded) {
-                            $node = $(instance.images[i].img);
-                            id = $node.attr('id');
-                            img = self.deepSearch(self.images, 'id', id);
-
-                            for (j = 0; j < self.images.length; j++) {
-                                if (self.images[j] === img) {
-                                    self.images.splice(j,1);
-                                }
-                            };
-
-                            $node.parent().remove();
-                        }
-                    };
-
-                    self.refresh();
-                })
-                .always( function (instance) {
-                    // after all images have been either loaded or confirmed broken
-                    self.obj.children('.photoMosaic').removeClass('loading');
-                });
+            setTimeout(function(){;
+                self.loader = new PhotoMosaic.Loader($images, self);
+            },0);
 
             this.bindEvents();
 
@@ -4345,42 +4436,11 @@ PhotoMosaic.Inputs = (function ($){
             var images = [];
 
             for (var i = 0; i < this.images.length; i++) {
-                image = this.deepSearch(columns, 'id', this.images[i].id);
+                image = PhotoMosaic.Utils.deepSearch(columns, 'id', this.images[i].id);
                 images.push(image);
             };
 
             return images;
-        },
-
-        deepSearch : function (obj, key, value) {
-            // recursively traverses an nested arrays, and objects looking for a key/value pair
-            var response = null;
-            var i = 0;
-            var prop;
-
-            if (obj instanceof Array) {
-                for (i = 0; i < obj.length; i++) {
-                    response = this.deepSearch(obj[i], key, value);
-                    if (response) {
-                        return response;
-                    }
-                }
-            } else {
-                for (prop in obj) {
-                    if (obj.hasOwnProperty(prop)) {
-                        if ( (prop == key) && (obj[prop] == value) ) {
-                            return obj;
-                        } else if (obj[prop] instanceof Object || obj[prop] instanceof Array) {
-                            response = this.deepSearch(obj[prop], key, value);
-                            if (response) {
-                                return response;
-                            }
-                        }
-                    }
-                }
-            }
-
-            return response;
         },
 
         adjustHeights: function (json, target_height) {

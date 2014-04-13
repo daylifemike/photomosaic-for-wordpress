@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the <a href="/wp-admin/admin.php?page=photomosaic">options page</a> for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.6.4
+Version: 2.7
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -22,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.6.4';
+        return '2.7';
     }
 
     public static function init() {
@@ -82,6 +82,7 @@ class PhotoMosaic {
             'show_loading' => false,
             'loading_transition' => 'fade',
             'responsive_transition' => true,
+            'lazyload' => 200,
             'lightbox' => true,
             'lightbox_rel' => 'pmlightbox',
             'lightbox_group' => true,
@@ -213,6 +214,23 @@ class PhotoMosaic {
             $output_buffer .= PhotoMosaic::gallery_from_nextgen($atts['nggid'], $settings['link_behavior'], 'gallery');
         } else if ( !empty($atts['ngaid']) ) {
             $output_buffer .= PhotoMosaic::gallery_from_nextgen($atts['ngaid'], $settings['link_behavior'], 'album');
+        } else if ( !empty($atts['category']) ) {
+            if ( $atts['category'] == 'recent' ) {
+                $recent_images = PhotoMosaic::recent_posts_images($atts['limit']);
+            } else {
+                $recent_images = PhotoMosaic::recent_posts_images($atts['limit'], $atts['category']);
+            }
+
+            if ( !empty($atts['link_behavior']) ) {
+                $link_behavior = $atts['link_behavior'];
+            } else {
+                $link_behavior = $recent_images;
+                $settings['lightbox'] = false;
+                $settings['custom_lightbox'] = false;
+            }
+
+            $ids = array_keys( $recent_images );
+            $output_buffer .= PhotoMosaic::gallery_from_wordpress($settings['id'], $link_behavior, $settings['include'], $settings['exclude'], $ids);
         } else {
             $output_buffer .= PhotoMosaic::gallery_from_wordpress($settings['id'], $settings['link_behavior'], $settings['include'], $settings['exclude'], $settings['ids']);
         }
@@ -243,6 +261,7 @@ class PhotoMosaic {
                         show_loading: '. $settings['show_loading'] .',
                         loading_transition: "'. $settings['loading_transition'] .'",
                         responsive_transition: '. $settings['responsive_transition'] .',
+                        lazyload: '. intval($settings['lazyload']) .',
                         modal_name: "' . $settings['lightbox_rel'] . '",
                         modal_group: ' . $settings['lightbox_group'] . ',
             ';
@@ -291,7 +310,7 @@ class PhotoMosaic {
                             $a = $(this);
                             $img = $a.find("img");
                             id = $img.attr("id");
-                            data = self.deepSearch( self.images, "id", id );
+                            data = PhotoMosaic.Utils.deepSearch( self.images, "id", id );
 
                             $img.attr( data.jetpack );
 
@@ -323,6 +342,33 @@ class PhotoMosaic {
         $output_buffer .='</div>';
 
         return preg_replace('/\s+/', ' ', $output_buffer);
+    }
+
+    public static function recent_posts_images($limit = null, $category = null) {
+        if ( empty($limit) ) {
+            return '';
+        }
+
+        $response = array();
+        $args = array(
+            'numberposts' => $limit,
+            'post_status' => 'publish'
+        );
+
+        if ( !empty($category) ) {
+            $args['category'] = get_category_by_slug($category)->term_id;
+        }
+
+        $posts = wp_get_recent_posts( $args );
+
+        foreach ($posts as $post) {
+            $id = get_post_thumbnail_id( $post['ID'] );
+            if ( !empty( $id ) ) {
+                $response[ $id ] = get_permalink( $post['ID'] );
+            }
+        }
+
+        return $response;
     }
 
     public static function gallery_from_wordpress($id, $link_behavior, $include, $exclude, $ids, $return_img_obj = false) {
@@ -404,8 +450,10 @@ class PhotoMosaic {
 
                 if ( $link_behavior === 'custom' && preg_match("#$pattern#i", $image_description) ) {
                     $url_data = ',"url": "' . $image_description . '"';
-                } elseif ( $link_behavior === 'attachment' ) {
+                } else if ( $link_behavior === 'attachment' ) {
                     $url_data = ',"url": "' . $image_attachment_page . '"';
+                } else if ( is_array( $link_behavior ) ) {
+                    $url_data = ',"url": "' . $link_behavior[ $_post->ID ] . '"';
                 } else {
                     $url_data = '';
                 }
