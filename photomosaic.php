@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the <a href="/wp-admin/admin.php?page=photomosaic">options page</a> for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.7
+Version: 2.7.1
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -22,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.7';
+        return '2.7.1';
     }
 
     public static function init() {
@@ -184,6 +184,7 @@ class PhotoMosaic {
             'center', 'prevent_crop', 'links', 'external_links', 'show_loading',
             'responsive_transition', 'lightbox', 'custom_lightbox', 'lightbox_group'
         );
+        $int_false_settings = array('lazyload');
 
         foreach ( $auto_settings as $key ) {
             if(intval($settings[$key]) == 0){
@@ -200,6 +201,14 @@ class PhotoMosaic {
                 } else {
                     $settings[$key] = "false";
                 }
+            }
+        }
+
+       foreach ( $int_false_settings as $key ) {
+            if (empty($settings[$key]) || $settings[$key] == 'false') {
+                $settings[$key] = "false";
+            } else {
+                $settings[$key] = intval($settings[$key]);
             }
         }
 
@@ -261,7 +270,7 @@ class PhotoMosaic {
                         show_loading: '. $settings['show_loading'] .',
                         loading_transition: "'. $settings['loading_transition'] .'",
                         responsive_transition: '. $settings['responsive_transition'] .',
-                        lazyload: '. intval($settings['lazyload']) .',
+                        lazyload: '. $settings['lazyload'] .',
                         modal_name: "' . $settings['lightbox_rel'] . '",
                         modal_group: ' . $settings['lightbox_group'] . ',
             ';
