@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the settings page for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.7.4
+Version: 2.7.5
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -13,7 +13,7 @@ if(preg_match('#' . basename(__FILE__) . '#', $_SERVER['PHP_SELF'])) {
     die('Illegal Entry');
 }
 
-add_action('init', array('PhotoMosaic', 'init'));
+add_action( 'init', array( 'PhotoMosaic', 'init' ) );
 add_action( 'plugins_loaded', array( 'PhotoMosaic', 'include_github_updater' ) );
 
 class PhotoMosaic {
@@ -22,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.7.4';
+        return '2.7.5';
     }
 
     public static function init() {
@@ -39,7 +39,7 @@ class PhotoMosaic {
         add_action( 'admin_menu', array( __CLASS__, 'setup_admin_page') );
         add_action( 'wp_ajax_photomosaic_whatsnew', array( __CLASS__, 'ajax_handler') );
 
-        wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.min.js', __FILE__ ), array('jquery'));
+        wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.min.js', __FILE__ ), array('jquery'), PhotoMosaic::version());
         wp_enqueue_script('photomosaic_js');
         wp_enqueue_style( 'photomosaic_base_css', plugins_url('/css/photomosaic.css', __FILE__ ));
 
@@ -54,7 +54,7 @@ class PhotoMosaic {
         } else {
             if ( isset($_GET['page']) ) {
                 if ( $_GET['page'] == "photoMosaic.php" || $_GET['page'] == "photomosaic.php"  || $_GET['page'] == "photomosaic" ) {
-                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic_js'));
+                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic_js'), PhotoMosaic::version());
                     wp_enqueue_style( 'photomosaic_admin_css', plugins_url('/css/photomosaic.admin.css', __FILE__ ));
                 }
             }
@@ -212,7 +212,7 @@ class PhotoMosaic {
             }
         }
 
-        $unique = floor(((time() + rand(21,40)) * rand(1,5)) / rand(1,5));
+        $unique = PhotoMosaic::makeID();
 
         $output_buffer = '
             <!-- PhotoMosaic v'. PhotoMosaic::version() .' -->
@@ -995,6 +995,12 @@ class PhotoMosaic {
         $safe_text = wp_check_invalid_utf8( $text );
         $safe_text = _wp_specialchars( $safe_text, "double" );
         return apply_filters( 'attribute_escape', $safe_text, $text );
+    }
+
+    private static function makeID() {
+        // a modification of the GUID function in the Phunction framework
+        // http://sourceforge.net/projects/phunction/
+        return sprintf('%04X%04X%04X', mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(0, 65535));
     }
 
 } // end PhotoMosaic

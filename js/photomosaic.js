@@ -45,7 +45,7 @@
     registerNamespace('PhotoMosaic.Plugins');
     registerNamespace('PhotoMosaic.ErrorChecks');
     registerNamespace('PhotoMosaic.Mosaics', []);
-    registerNamespace('PhotoMosaic.version', '2.7.4');
+    registerNamespace('PhotoMosaic.version', '2.7.5');
 
 }(jQuery, window));
 /*
@@ -2815,7 +2815,7 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
 
 }).call(this);
 /*
-    Version: 3.1.5d
+    Version: 3.1.5e
     Modified by Mike Kafka (http://codecanyon.net/user/makfak) to serve my own purposes
     # b
      - new jQuery namespace (JQPM)
@@ -2826,6 +2826,10 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
      - self-invoke arguments ref the window and test for availability (window.JQPM || jQuery)
     # d
      - new namespace on events
+    # e
+     - changed viewport buffer 200 >>> 100 (~#600)
+     - locked the overlay to the screen (CSS)
+     - removed the .ppt bumper (CSS)
 */
 /* ------------------------------------------------------------------------
     Class: prettyPhoto
@@ -3412,10 +3416,10 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
             
                 while (!fitting){
                     if((pp_containerWidth > windowWidth)){
-                        imageWidth = (windowWidth - 200);
+                        imageWidth = (windowWidth - 100);
                         imageHeight = (height/width) * imageWidth;
                     }else if((pp_containerHeight > windowHeight)){
-                        imageHeight = (windowHeight - 200);
+                        imageHeight = (windowHeight - 100);
                         imageWidth = (width/height) * imageHeight;
                     }else{
                         fitting = true;
@@ -4515,7 +4519,11 @@ PhotoMosaic.Inputs = (function ($){
                 image_end = Math.floor( column_end * ( Math.floor( (image_start / column_start) * 1000 ) / 1000 ) );
                 images_height += image_end;
 
-                image = this.setImageContraints(image, this.col_width, image_end);
+                if (this.opts.prevent_crop) {
+                    image = this.setImageContraints(image, image.width.adjusted, image.height.adjusted);
+                } else {
+                    image = this.setImageContraints(image, this.col_width, image_end);
+                }
             }
 
             col.height = images_height + total_padding;
