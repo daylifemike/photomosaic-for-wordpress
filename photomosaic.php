@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the settings page for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.8.1
+Version: 2.8.2
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -22,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.8.1';
+        return '2.8.2';
     }
 
     public static function init() {
@@ -211,7 +211,7 @@ class PhotoMosaic {
         }
 
        foreach ( $int_false_settings as $key ) {
-            if (empty($settings[$key]) || $settings[$key] == 'false') {
+            if ( trim($settings[$key]) == '' || $settings[$key] == 'false' ) {
                 $settings[$key] = "false";
             } else {
                 $settings[$key] = intval($settings[$key]);
@@ -998,6 +998,7 @@ class PhotoMosaic {
     }
 
     private static function esc_attr( $text ) {
+        $text = trim($text);
         // lifted from wp-includes/formatting.php # esc_attr
         $safe_text = wp_check_invalid_utf8( $text );
         $safe_text = _wp_specialchars( $safe_text, "double" );
