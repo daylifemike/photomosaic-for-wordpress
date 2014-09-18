@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the settings page for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.8.5
+Version: 2.9
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -22,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.8.5';
+        return '2.9';
     }
 
     public static function init() {
@@ -39,7 +39,8 @@ class PhotoMosaic {
         add_action( 'admin_menu', array( __CLASS__, 'setup_admin_page') );
         add_action( 'wp_ajax_photomosaic_whatsnew', array( __CLASS__, 'ajax_handler') );
 
-        wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.min.js', __FILE__ ), array('jquery'), PhotoMosaic::version());
+        wp_register_script( 'react', '//cdnjs.cloudflare.com/ajax/libs/react/0.11.2/react.min.js', null, '0.11.2' );
+        wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.min.js', __FILE__ ), array('jquery','react'), PhotoMosaic::version());
         wp_enqueue_script('photomosaic_js');
         wp_enqueue_style( 'photomosaic_base_css', plugins_url('/css/photomosaic.css', __FILE__ ));
 
@@ -54,7 +55,12 @@ class PhotoMosaic {
         } else {
             if ( isset($_GET['page']) ) {
                 if ( $_GET['page'] == "photoMosaic.php" || $_GET['page'] == "photomosaic.php"  || $_GET['page'] == "photomosaic" ) {
-                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic_js'), PhotoMosaic::version());
+                    wp_register_script( 'photomosaic_codemirror_js', plugins_url('/includes/vendor/codemirror/codemirror.js', __FILE__ ));
+                    wp_enqueue_script( 'photomosaic_codemirror_jsmode_js', plugins_url('/includes/vendor/codemirror/javascript.js', __FILE__ ), array('photomosaic_codemirror_js'));
+                    wp_enqueue_script( 'photomosaic_codemirror_cssmode_js', plugins_url('/includes/vendor/codemirror/css.js', __FILE__ ), array('photomosaic_codemirror_js'));
+                    wp_enqueue_style( 'photomosaic_codemirror_css', plugins_url('/includes/vendor/codemirror/codemirror.css', __FILE__ ));
+
+                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic_js', 'photomosaic_codemirror_js'), PhotoMosaic::version());
                     wp_enqueue_style( 'photomosaic_admin_css', plugins_url('/css/photomosaic.admin.css', __FILE__ ));
                 }
             }
@@ -88,7 +94,10 @@ class PhotoMosaic {
             'lightbox_group' => true,
             'custom_lightbox' => false,
             'custom_lightbox_name' => '',
-            'custom_lightbox_params' => '{}'
+            'custom_lightbox_params' => '{}',
+            'custom_css' => '/* your custom css here */',
+            // this is repeated in pm.admin.js as a null-check
+            'onready_callback' => "function(".'$mosaic'.", ".'$items'."){\n\t/* your code here */\n}"
         );
 
         $options = get_option('photomosaic_options');
@@ -222,6 +231,9 @@ class PhotoMosaic {
 
         $output_buffer = '
             <!-- PhotoMosaic v'. PhotoMosaic::version() .' -->
+            <style type="text/css">
+                '. $settings['custom_css'] .'
+            </style>
             <script type="text/javascript" data-photomosaic-gallery="true">
                 var PMalbum'.$unique.' = [';
 
@@ -290,11 +302,18 @@ class PhotoMosaic {
         }
         $output_buffer .= PhotoMosaic::get_size_object($atts);
 
+        $output_buffer .= '
+                        modal_ready_callback : function(mosaic){
+                            var $mosaic = JQPM(mosaic);
+                            var $items = $mosaic.children();
+                            var $ = jQuery;
+                            ('. $settings['onready_callback'] .').apply(this, [$mosaic, $items]);
+        ';
+
         if( $settings['lightbox'] == 'true' || $settings['custom_lightbox'] == 'true' ) {
             if( $settings['lightbox'] == 'true' ) {
                 $output_buffer .='
-                        modal_ready_callback : function($photomosaic){
-                            JQPM("a[rel^=\''.$settings['lightbox_rel'].'\']", $photomosaic).prettyPhoto({
+                            $mosaic.find("a[rel^=\''.$settings['lightbox_rel'].'\']").prettyPhoto({
                                 overlay_gallery: false,
                                 slideshow: false,
                                 theme: "pp_default",
@@ -302,43 +321,39 @@ class PhotoMosaic {
                                 show_title: false,
                                 social_tools: ""
                             });
-                        },
                 ';
             } elseif ( $settings['custom_lightbox'] == 'true' ) {
                 $output_buffer .='
-                        modal_ready_callback : function($photomosaic){
-                            jQuery("a[rel^=\''.$settings['lightbox_rel'].'\']", $photomosaic).'.$settings['custom_lightbox_name'].'('.$settings['custom_lightbox_params'].');
-                        },
+                            jQuery("a[rel^=\''.$settings['lightbox_rel'].'\']", mosaic).'.$settings['custom_lightbox_name'].'('.$settings['custom_lightbox_params'].');
                 ';
             }
         } else if ( class_exists('Jetpack_Carousel') ) {
             // Jetpack :: Carousel support
             $output_buffer .='
-                    modal_ready_callback : function($photomosaic){
-                        var data;
-                        var id;
-                        var $fragment;
-                        var $img;
-                        var $a;
-                        var self = this;
+                            var data;
+                            var id;
+                            var $fragment;
+                            var $img;
+                            var $a;
+                            var self = this;
 
-                        jQuery("a", $photomosaic).each(function () {
-                            $a = jQuery(this);
-                            $img = $a.find("img");
-                            id = $img.attr("id");
-                            data = PhotoMosaic.Utils.deepSearch( self.images, "id", id );
+                            jQuery("a", mosaic).each(function () {
+                                $a = jQuery(this);
+                                $img = $a.find("img");
+                                id = $img.attr("id");
+                                data = PhotoMosaic.Utils.deepSearch( self.images, "id", id );
 
-                            $img.attr( data.jetpack );
+                                $img.attr( data.jetpack );
 
-                            $a.addClass("gallery-item");
-                        });
+                                $a.addClass("gallery-item");
+                            });
 
-                        jQuery($photomosaic).parent().addClass("gallery");
-                    },
+                            jQuery(mosaic).parent().addClass("gallery");
             ';
         }
 
         $output_buffer .='
+                        },
                         order: "'. $settings['order'] .'"
                     });
                 });
@@ -368,21 +383,41 @@ class PhotoMosaic {
         $response = array();
         $args = array(
             'numberposts' => $limit,
-            'post_status' => 'publish'
+            'post_status' => 'publish',
+            'post_type' => '*'
         );
 
-        if ( !empty($category) ) {
-            if ( strpos($category, ',') === false ) {
-                $args['category'] = get_category_by_slug($category)->term_id;
-            } else {
-                function fetch_category_id($cat) {
-                    return get_category_by_slug($cat)->term_id;
-                };
-                $args['category'] = implode( ',', array_map( "fetch_category_id", explode( ',', $category ) ) );
+        if ( empty($category) ) {
+            $posts = wp_get_recent_posts( $args );
+        } else {
+            $posts = array();
+            $cat_map = explode( ',', $category );
+            $cat_args = array_fill(0, count($cat_map), $args);
+
+            $cat_map = array_map(function($slug, $args){
+                $slug = trim($slug);
+                $taxonomies = explode(':', $slug);
+                $taxonomy = (count($taxonomies) > 1 ? $taxonomies[0] : 'category');
+                $slug = (count($taxonomies) > 1 ? $taxonomies[1] : $slug);
+                $taxonomy_args = array(
+                    'tax_query' => array(
+                        array(
+                            'taxonomy' => $taxonomy,
+                            'field' => 'slug',
+                            'terms' => $slug
+                        )
+                    )
+                );
+                return wp_get_recent_posts( $args + $taxonomy_args );
+            }, $cat_map, $cat_args);
+
+            // flatten one level
+            foreach ($cat_map as $cat_arr) {
+                foreach ($cat_arr as $arr) {
+                    array_push($posts, $arr);
+                }
             }
         }
-
-        $posts = wp_get_recent_posts( $args );
 
         foreach ($posts as $post) {
             $id = get_post_thumbnail_id( $post['ID'] );
