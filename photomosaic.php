@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the settings page for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.9
+Version: 2.9.1
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -22,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.9';
+        return '2.9.1';
     }
 
     public static function init() {
@@ -394,7 +394,7 @@ class PhotoMosaic {
             $cat_map = explode( ',', $category );
             $cat_args = array_fill(0, count($cat_map), $args);
 
-            $cat_map = array_map(function($slug, $args){
+            function fetch_taxonomy_categories($slug, $args){
                 $slug = trim($slug);
                 $taxonomies = explode(':', $slug);
                 $taxonomy = (count($taxonomies) > 1 ? $taxonomies[0] : 'category');
@@ -409,7 +409,9 @@ class PhotoMosaic {
                     )
                 );
                 return wp_get_recent_posts( $args + $taxonomy_args );
-            }, $cat_map, $cat_args);
+            };
+
+            $cat_map = array_map("fetch_taxonomy_categories", $cat_map, $cat_args);
 
             // flatten one level
             foreach ($cat_map as $cat_arr) {

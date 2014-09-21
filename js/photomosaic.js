@@ -44,7 +44,7 @@
     registerNamespace('PhotoMosaic.Plugins');
     registerNamespace('PhotoMosaic.ErrorChecks');
     registerNamespace('PhotoMosaic.Mosaics', []);
-    registerNamespace('PhotoMosaic.version', '2.9');
+    registerNamespace('PhotoMosaic.version', '2.9.1');
 
 }(jQuery, window));
 /*
@@ -2454,7 +2454,7 @@ PhotoMosaic.Utils = (function(){
             return response;
         },
 
-        pickImageSize: function (images, sizes) {
+        pickImageSize : function (images, sizes) {
             // currently only supported in PM4WP
             if (!sizes || !images[0].sizes) { return images; }
 
@@ -2499,6 +2499,12 @@ PhotoMosaic.Utils = (function(){
             }
 
             return images;
+        },
+
+        decodeHTML : function (str) {
+            var e = document.createElement('div');
+            e.innerHTML = str;
+            return e.childNodes.length === 0 ? "" : e.childNodes[0].nodeValue;
         },
 
         // taken from UnderscoreJS _.debounce()
@@ -2642,7 +2648,7 @@ PhotoMosaic.Inputs = (function ($){
             var $images = $node.find('img');
 
             for (var i = 0; i < $images.length; i++) {
-                var $image = $images.eq(i)
+                var $image = $images.eq(i);
                 var image = {
                     caption : $image.attr('title'),
                     alt : $image.attr('alt'),
@@ -3869,6 +3875,8 @@ PhotoMosaic.Inputs = (function ($){
                 image.src = image_url;
                 image.padding = self.opts.padding;
 
+                image.caption = PhotoMosaic.Utils.decodeHTML( image.caption );
+
                 // modal hooks
                 if (self.opts.modal_name) {
                     if (self.opts.modal_group) {
@@ -3998,7 +4006,7 @@ PhotoMosaic.Inputs = (function ($){
         },
 
         getUniqueClass: function () {
-            return 'photomosaic-' + this.opts.modal_hash;
+            return (this.opts.modal_hash) ? 'photomosaic-' + this.opts.modal_hash : '';
         },
 
         getAvia: function () {
