@@ -44,7 +44,7 @@
     registerNamespace('PhotoMosaic.Plugins');
     registerNamespace('PhotoMosaic.ErrorChecks');
     registerNamespace('PhotoMosaic.Mosaics', []);
-    registerNamespace('PhotoMosaic.version', '2.9.1');
+    registerNamespace('PhotoMosaic.version', '2.10');
 
 }(jQuery, window));
 /*
@@ -2595,7 +2595,7 @@ PhotoMosaic.ErrorChecks = (function($){
                 }
             }
 
-            if (opts.prevent_crop && opts.height !== 'auto') {
+            if (opts.layout == 'columns' && opts.prevent_crop && opts.height !== 'auto') {
                 PhotoMosaic.Utils.log.info("Height must be set to 'auto' to Prevent Cropping. The value for height (" + opts.height + ") is being ignored so as to prevent cropping.");
                 opts.height = "auto";
             }
@@ -2736,7 +2736,7 @@ PhotoMosaic.Inputs = (function ($){
 
         handler : function () {
             var $this = $(this);
-            var $image = $this.children('img');
+            var $image = $this.find('img');
             var image_loaded = null;
 
             $image.attr('src', $image.attr('data-src'));
@@ -2854,6 +2854,14 @@ PhotoMosaic.Inputs = (function ($){
 
                 if (num_images < num_cols) {
                     num_cols = num_images;
+                }
+
+                if ((opts.max_columns !== 'auto') && (num_cols > opts.max_columns)) {
+                    num_cols = opts.max_columns;
+                }
+
+                if ((opts.min_columns !== 'auto') && (num_cols < opts.min_columns)) {
+                    num_cols = opts.min_columns;
                 }
             }
 
@@ -2993,6 +3001,34 @@ PhotoMosaic.Inputs = (function ($){
             });
         },
 
+        positionImagesInContainer : function (images, prevent_crop) {
+            var image = null;
+
+            for (var i = 0; i < images.length; i++) {
+                image = images[i];
+
+                image.adjustments = {};
+
+                if (!prevent_crop) {
+                    // adjusted is still scaled to the column's width
+                    if (image.height.adjusted > image.height.container) {
+                        image.adjustments.top = Math.floor((image.height.adjusted - image.height.container) / 2);
+                    } else {
+                        image.width.adjusted = Math.floor((image.width.adjusted * image.height.container) / image.height.adjusted);
+                        image.height.adjusted = image.height.container;
+
+                        image.adjustments.left = Math.floor((image.width.adjusted - image.width.container) / 2);
+                    }
+                }
+
+                image.adjustments = PhotoMosaic.Layouts.Common.normalizeAdjustments( image.adjustments );
+
+                images[i] = image;
+            };
+
+            return images;
+        },
+
         positionImagesInMosaic : function (imagesById, columns, column_width, opts) {
             var col_height = 0;
             var image = null;
@@ -3066,8 +3102,6 @@ PhotoMosaic.Inputs = (function ($){
             // determine the target height for the entire mosaic
             mosaic_height = this.getMosaicHeight( columns );
 
-            //-- ??? mark last column -- is this still necessary?
-
             // adjust the images in each column to the new height (for a flat bottom edge)
             columns = this.adjustColumnsToHeight( columns, mosaic_height );
 
@@ -3082,7 +3116,7 @@ PhotoMosaic.Inputs = (function ($){
             }
 
             // create crop position info
-            images = this.positionImagesInContainer( images );
+            images = PhotoMosaic.Layouts.Common.positionImagesInContainer( images, this.opts.prevent_crop );
 
             // convert all this knowledge into position data
             // TODO : stop being a side-effect
@@ -3168,8 +3202,6 @@ PhotoMosaic.Inputs = (function ($){
 
             column_height += (ids.length - 1) * this.opts.padding;
 
-            // ??? mark last image in column
-
             // how much do we need to grow or shrink the column
             var diff = target_height - column_height // (plus = grow, minus = shrink)
             var direction = (diff > 0) ? 'grow' : 'shrink';
@@ -3215,34 +3247,6 @@ PhotoMosaic.Inputs = (function ($){
             }
 
             return ids;
-        },
-
-        positionImagesInContainer : function (images) {
-            var image = null;
-
-            for (var i = 0; i < images.length; i++) {
-                image = images[i];
-
-                image.adjustments = {};
-
-                if (!this.opts.prevent_crop) {
-                    // adjusted is still scaled to the column's width
-                    if (image.height.adjusted > image.height.container) {
-                        image.adjustments.top = Math.floor((image.height.adjusted - image.height.container) / 2);
-                    } else {
-                        image.width.adjusted = Math.floor((image.width.adjusted * image.height.container) / image.height.adjusted);
-                        image.height.adjusted = image.height.container;
-
-                        image.adjustments.left = Math.floor((image.width.adjusted - image.width.container) / 2);
-                    }
-                }
-
-                image.adjustments = PhotoMosaic.Layouts.Common.normalizeAdjustments( image.adjustments );
-
-                images[i] = image;
-            };
-
-            return images;
         },
 
         refresh : function () {
@@ -3293,14 +3297,429 @@ PhotoMosaic.Inputs = (function ($){
         }
     };
 }(window.JQPM));
-/*
-    columns - int / auto
-    padding - int
-    shape - natural / x:y
-    alignment - top / middle / bottom
+(function ($) {
+    PhotoMosaic.Layouts.rows = function (mosaic) {
+        this.node = mosaic.obj;
+        this.opts = mosaic.opts;
+        this._options = mosaic._options;
+        this._options.gallery = mosaic.opts.gallery.slice(); // we want to be able to refer to the original gallery order
+        this.images = mosaic.opts.gallery;
+        this.imagesById = PhotoMosaic.Utils.arrayToObj( this.images, 'id' );
+        this.ordered_images = $.map( this.images, function (item, i) {
+            return item.id;
+        } );
+        this.isRefreshing = false;
+        return this;
+    };
+    PhotoMosaic.Layouts.rows.prototype = {
+        getData : function () {
+            var images = this.images;
+            var rows = null;
 
-    orphans - left / right / center
-*/
+            if (this._options.width === 'auto' || this._options.width == 0) {
+                this.opts.width = this.node.width();
+            }
+
+            // look for conflicting settings
+            this.opts = this.errorChecks.initial( this.opts );
+
+            // scale images to the tallest height
+            images = this.scaleImagesToHeight( images, this.opts.max_row_height );
+
+            // group into rows assuming auto-rows
+            rows = this.groupIntoRows( images, this.opts.width );
+
+            // adjust the groups to get the desired number of rows
+            if (
+                (this.opts.rows === 'auto' || this.opts.rows === 0)
+                && (this.opts.height !== 'auto' && this.opts.height !== 0)
+            ) {
+                rows = this.adjustNumberOfRowsByHeight( images, rows, this.opts.height );
+            } else {
+                rows = this.adjustNumberOfRowsByRows( images, rows );
+            }
+
+            // scale the rows to the correct width
+            rows = this.adjustRowsToWidth( rows, this.opts.width );
+
+            if (!this.opts.prevent_crop) {
+                rows = this.plumbRows( rows, this.opts.width );
+            }
+
+            if (this.opts.allow_orphans && this.hasOrphans(rows)) {
+                // the orphan row tends to be much taller than the others
+                rows = this.normalizeOrphanRowHeight( rows, this.opts.width );
+            }
+
+            if (this.opts.height !== 'auto' && this.opts.height !== 0) {
+                rows = this.setMosaicHeight( images, rows, this.opts.height );
+            }
+
+            // create crop position info
+            images = PhotoMosaic.Layouts.Common.positionImagesInContainer( images, this.opts.prevent_crop );
+
+            // convert all this knowledge into position data
+            this.positionImagesInMosaic( rows, this.opts.padding );
+
+            images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes );
+
+            this.isRefreshing = false;
+
+            return {
+                width : this.opts.width,
+                height : this.getMosaicHeight(rows),
+                images : images
+            };
+        },
+
+        groupIntoRows : function (images, container_width) {
+            var rows = [];
+            var row = [];
+            var row_width = 0;
+
+            for (var i = 0; i < images.length; i++) {
+                if (row_width > container_width) {
+                    rows.push( row );
+                    row = [ images[i] ];
+                    row_width = images[i].width.container;
+                } else {
+                    row.push( images[i] );
+                    row_width = row_width + images[i].width.container;
+                }
+            };
+
+            rows.push( row );
+
+            return rows;
+        },
+
+        scaleImagesToHeight : function (images, height) {
+            for (var i = 0; i < images.length; i++) {
+                images[i] = this.scaleImageToHeight( images[i], height );
+            };
+
+            return images;
+        },
+
+        scaleImageToHeight : function (image, height) {
+            image.height.container = image.height.adjusted = height;
+            image.width.container = image.width.adjusted = Math.floor((image.width.original * height) / image.height.original);
+
+            return image;
+        },
+
+        adjustNumberOfRowsByRows : function (images, rows, force) {
+            var desired = null;
+
+            if (force) {
+                desired = force;
+            } else if (
+                (this.opts.rows === 'auto' || this.opts.rows === 0)
+                && !this.opts.allow_orphans
+                && this.hasOrphans
+            ) {
+                desired = rows.length - 1;
+            } else if (this.opts.rows !== 'auto' && this.opts.rows !== 0) {
+                desired = this.opts.rows;
+            } else {
+                // we have what we want
+                return rows;
+            }
+
+            // binary search
+            var lower = (rows.length < desired) ? this.opts.max_row_height : 0;
+            var upper = (rows.length > desired) ? this.opts.max_row_height : 1000;
+            var middle = 0;
+            var i = 0;
+
+            while((upper - lower) > 1) {
+                middle = Math.floor((upper - lower) / 2) + lower;
+
+                images = this.scaleImagesToHeight( images, middle );
+                rows = this.groupIntoRows( images, this.opts.width );
+
+                if (rows.length > desired) {
+                    upper = middle;
+                } else {
+                    lower = middle;
+                }
+            }
+
+            if (rows.length > desired) {
+                images = this.scaleImagesToHeight( images, lower );
+                rows = this.groupIntoRows( images, this.opts.width );
+            }
+
+            return rows;
+        },
+
+        adjustNumberOfRowsByHeight : function (images, rows, desired) {
+            // binary search
+            var current = this.getMosaicHeight(rows);
+            var lower = (current < desired) ? this.opts.max_row_height : 0;
+            var upper = (current > desired) ? this.opts.max_row_height : 1000;
+            var middle = 0;
+            var i = 0;
+
+            while((upper - lower) > 1) {
+                middle = Math.floor((upper - lower) / 2) + lower;
+
+                images = this.scaleImagesToHeight( images, middle );
+                rows = this.groupIntoRows( images, this.opts.width );
+
+                current = this.getMosaicHeight(rows);
+
+                if (current > desired) {
+                    upper = middle;
+                } else {
+                    lower = middle;
+                }
+            }
+
+            if (current > desired) {
+                images = this.scaleImagesToHeight( images, upper );
+                rows = this.groupIntoRows( images, this.opts.width );
+            }
+
+            return rows;
+        },
+
+        adjustRowsToWidth : function (rows, container_width) {
+            for (var i = 0; i < rows.length; i++) {
+                rows[i] = this.adjustRowToWidth( rows[i], container_width );
+            }
+
+            return rows;
+        },
+
+        adjustRowToWidth : function (row, container_width) {
+            var row_width = this.getRowWidth(row);
+            var row_height = row[0].height.container;
+            var i = 0;
+
+            if (row_width > container_width) {
+                row = this.adjustRowToHeight( row, (row_height - 1) );
+                return this.adjustRowToWidth( row, container_width );
+            } else {
+                if (!this.opts.prevent_crop) {
+                    return this.adjustRowToHeight( row, (row_height + 1) );
+                }
+            }
+
+            return row;
+        },
+
+        adjustRowToHeight : function (row, height) {
+            for (var i = 0; i < row.length; i++) {
+                row[i] = this.scaleImageToHeight( row[i], height );
+            }
+
+            return row;
+        },
+
+        plumbRows : function (rows, container_width) {
+            for (var i = 0; i < rows.length; i++) {
+                rows[i] = this.plumbRow( rows[i], container_width );
+            }
+            return rows;
+        },
+
+        plumbRow : function (row, container_width) {
+            var row_width = this.getRowWidth(row);
+            var diff = row_width - container_width;
+            var i = 0;
+
+            if (diff > 0) {
+                // trim
+                while(diff > 0) {
+                    i = (i >= row.length) ? 0 : i;
+                    row[i].width.container = row[i].width.container - 1;
+                    i++;
+                    diff--;
+                }
+            } else {
+                console.log(
+                    Math.abs(diff),
+                    (container_width / 10),
+                    Math.abs(diff) < (container_width / 10)
+                );
+                if (Math.abs(diff) < (container_width / 10)) {
+                    // scale up
+                    while(diff < 0) {
+                        i = (i >= row.length) ? 0 : i;
+                        row[i].width.container = row[i].width.container + 1;
+                        i++;
+                        diff++;
+                    }
+                }
+            }
+
+            return row;
+        },
+
+        normalizeOrphanRowHeight : function (rows, container_width) {
+            var last_row = rows[rows.length - 1];
+            var row_width = this.getRowWidth(last_row);
+            var average_height = 0;
+
+            if (row_width >= container_width) {
+                return rows;
+            } else {
+                average_height = this.getAverageRowHeight(rows);
+                last_row = this.adjustRowToHeight(last_row, average_height);
+            }
+
+            rows[rows.length - 1] = last_row;
+            return rows
+        },
+
+        hasOrphans : function (rows) {
+            var row_width = this.getRowWidth( rows[rows.length - 1] );
+            return (row_width < this.opts.width);
+        },
+
+        getRowWidth : function (row) {
+            var row_width = 0;
+
+            for (var i = 0; i < row.length; i++) {
+                row_width += row[i].width.container;
+            }
+
+            row_width += (row.length - 1) * this.opts.padding;
+
+            return row_width;
+        },
+
+        getAverageRowHeight : function (rows) {
+            var total_height = 0;
+
+            for (var i = 0; i < rows.length; i++) {
+                total_height += rows[i][0].height.container;
+            }
+
+            return Math.floor(total_height / rows.length);
+        },
+
+        setMosaicHeight : function (images, rows, desired) {
+            var current = this.getMosaicHeight(rows);
+            var diff = current - desired;
+            var row_heights = [];
+            var padding = this.opts.padding * (rows.length - 1);
+
+            // get each row's height as a percentage of the container_height
+            for (var i = 0; i < rows.length; i++) {
+                row_heights.push(
+                    Math.round(
+                        (((desired - padding) * rows[i][0].height.container) / (current - padding))
+                    )
+                );
+            }
+
+            for (var i = 0; i < rows.length; i++) {
+                for (var j = 0; j < rows[i].length; j++) {
+                    rows[i][j].height.container = row_heights[i];
+                }
+            }
+
+            return rows;
+        },
+
+        getMosaicHeight : function (rows) {
+            var total_height = 0;
+
+            for (var i = 0; i < rows.length; i++) {
+                total_height += rows[i][0].height.container;
+            }
+
+            return Math.ceil(total_height + ((rows.length - 1) * this.opts.padding));
+        },
+
+        positionImagesInMosaic : function (rows, padding) {
+            var from_left = 0;
+            var from_top = 0;
+            var image = null;
+
+            for (var i = 0; i < rows.length; i++) {
+                from_left = 0;
+
+                for (var j = 0; j < rows[i].length; j++) {
+                    image = rows[i][j];
+
+                    image.position = {
+                        top : from_top,
+                        left : from_left
+                    };
+
+                    from_left = from_left + image.width.container + padding;
+                };
+
+                from_top = from_top + rows[i][0].height.container + padding;
+            };
+        },
+
+        refresh : function () {
+            this.isRefreshing = true;
+            return this.getData();
+        },
+
+        update : function (props) {
+            this.opts = $.extend({}, this.opts, props);
+
+            // take care of any layout-specific change-logic
+            if (props.hasOwnProperty('order')) {
+                this.images = this._options.gallery.slice();
+
+                if (props.order == 'random') {
+                    this.images = PhotoMosaic.Layouts.Common.randomizeImages( this.images );
+                }
+            }
+
+            if (props.hasOwnProperty('width')) {
+                this._options.width = props.width;
+
+                if (props.width === 'auto' || props.width == 0) {
+                    this.opts.width = this.node.width();
+                }
+            }
+        },
+
+        errorChecks : {
+            initial : function (opts) {
+                if (this.heightRowMismatch(opts)) {
+                    PhotoMosaic.Utils.log.info("Rows must be set to 'auto' to set a fixed Height");
+                    opts.rows = 'auto';
+                }
+                if (this.heightOrphanMismatch(opts)) {
+                    PhotoMosaic.Utils.log.info("Allow Orphans must be 'true' to set a fixed Height");
+                    opts.allow_orphans = true;
+                }
+                if (this.heightCropMismatch(opts)) {
+                    PhotoMosaic.Utils.log.info("Prevent Cropping must be 'false' to set a fixed Height");
+                    opts.prevent_crop = false;
+                }
+                return opts;
+            },
+            heightRowMismatch : function (opts) {
+                return (
+                    (opts.height !== 'auto' && opts.height !== 0)
+                    && (opts.rows !== 'auto' && opts.rows !== 0)
+                );
+            },
+            heightOrphanMismatch : function (opts) {
+                return (
+                    (opts.height !== 'auto' && opts.height !== 0)
+                    && !opts.allow_orphans
+                );
+            },
+            heightCropMismatch : function (opts) {
+                return (
+                    (opts.height !== 'auto' && opts.height !== 0)
+                    && opts.prevent_crop
+                );
+            },
+        }
+    };
+}(window.JQPM));
 (function ($) {
     PhotoMosaic.Layouts.grid = function (mosaic) {
         this.node = mosaic.obj;
@@ -3324,6 +3743,9 @@ PhotoMosaic.Inputs = (function ($){
                 this.opts.width = this.node.width();
             }
 
+            // look for conflicting settings
+            this.opts = this.errorChecks.initial( this.opts );
+
             // determine the number of columns
             this.columns = columns = PhotoMosaic.Layouts.Common.makeColumnBuckets( this.opts );
 
@@ -3338,6 +3760,9 @@ PhotoMosaic.Inputs = (function ($){
 
             // sort the images (based on opts.order) and assign them to columns
             columns = PhotoMosaic.Layouts.Common.dealIntoColumns( images, columns, this.opts, this.isRefreshing );
+
+            // adjust for height
+            columns = this.scaleColumnsToHeight(columns, this.opts.height);
 
             // determine the target height for the entire mosaic
             mosaic_height = this.getMosaicHeight( this.imagesById, columns, this.opts );
@@ -3382,7 +3807,7 @@ PhotoMosaic.Inputs = (function ($){
             var scaled_height = null;
 
             for (var i = 0; i < images.length; i++) {
-                image = images[i];
+                image = (typeof images[i] == 'string') ? this.imagesById[ images[i] ] : images[i];
                 scaled_height = Math.floor( (image.height.original * image.width.container) / image.width.original );
 
                 if ( this.shouldScaleWidth( image ) ) {
@@ -3395,6 +3820,51 @@ PhotoMosaic.Inputs = (function ($){
             }
 
             return images;
+        },
+
+        scaleColumnsToHeight : function (columns, height) {
+            if (height == 'auto' || height == 0) {
+                return columns;
+            } else {
+                for (var i = 0; i < columns.length; i++) {
+                    columns[i] = this.scaleColumnToHeight(columns[i], height);
+                };
+                return columns;
+            }
+        },
+
+        scaleColumnToHeight : function (ids, target_height) {
+            var column_height = 0;
+            var i = 0;
+
+            // get the height of each column
+            for (i = 0; i < ids.length; i++) {
+                column_height += this.imagesById[ ids[i] ].height.container;
+            }
+
+            column_height += (ids.length - 1) * this.opts.padding;
+
+            // how much do we need to grow or shrink the column
+            var diff = target_height - column_height // (plus = grow, minus = shrink)
+            var direction = (diff > 0) ? 'grow' : 'shrink';
+            diff = Math.abs(diff);
+
+            // spread the diff between the image
+            i = 0;
+            while (diff > 0) {
+                i = (i >= ids.length) ? 0 : i;
+                if (direction === 'grow') {
+                    this.imagesById[ ids[i] ].height.container++;
+                } else {
+                    this.imagesById[ ids[i] ].height.container--;
+                }
+                i++;
+                diff--;
+            }
+
+            ids = this.scaleToContainer(ids);
+
+            return ids;
         },
 
         getMosaicHeight : function (imagesById, columns, opts) {
@@ -3452,6 +3922,8 @@ PhotoMosaic.Inputs = (function ($){
         },
 
         shouldScaleWidth : function (image) {
+            // cover = shortest image side == longest container side
+            // contain = longest image side == shortest container side
             var scaled_height = Math.floor( (image.height.original * image.width.container) / image.width.original );
             return (
                 ((this.opts.sizing == 'cover') && (scaled_height > image.height.container)) ||
@@ -3486,9 +3958,26 @@ PhotoMosaic.Inputs = (function ($){
         },
 
         errorChecks : {
+            initial : function (opts) {
+                if (this.coverCropMismatch(opts)) {
+                    PhotoMosaic.Utils.log.error("Setting 'Sizing' to 'Cover' requires that images be cropped. Setting 'Prevent Cropping' to 'false'.");
+                    opts.prevent_crop = false;
+                }
+                if (this.heightShapeMismatch(opts)) {
+                    PhotoMosaic.Utils.log.info("A fixed 'Height' requires changing the grid item's 'Shape'. The 'Shape' setting ("+ opts.shape +") will not be honored.");
+                    opts.allow_orphans = true;
+                }
+                return opts;
+            },
+            coverCropMismatch : function (opts) {
+                return (opts.sizing == 'cover' && opts.prevent_crop);
+            },
+            heightShapeMismatch : function (opts) {
+                return (opts.height !== 'auto' && opts.height !== 0);
+            },
             shape : function (shape) {
                 if ( (shape != 'natural') && (shape.indexOf(':') <= 0) ) {
-                    PhotoMosaic.Utils.log.error("'shape' must be 'natural' or an aspect ratio in the form 'x:y'. ")
+                    PhotoMosaic.Utils.log.error("'Shape' must be 'natural' or an aspect ratio in the form 'x:y'. ")
                     return true;
                 }
                 return false;
@@ -3669,12 +4158,10 @@ PhotoMosaic.Inputs = (function ($){
             input : 'json', // json, html, xml
             gallery : 'PMalbum', // json object, xml file path
             padding : 2,
-            columns : 'auto', // auto (str) or (int)
             width : 'auto', // auto (str) or (int)
             height : 'auto', // auto (str) or (int)
             links : true,
             external_links: false,
-            order : 'rows', // rows, columns, masonry, random
             center : true,
             prevent_crop : false,
             show_loading : false,
@@ -3690,8 +4177,20 @@ PhotoMosaic.Inputs = (function ($){
             modal_hash : null,
             modal_ready_callback : null,
             lazyload : 0, // int || false
+            lightbox_rendition : 'full',
 
             layout : 'columns', // rows, columns, grid
+
+            // columns opts
+            columns : 'auto', // auto (str) or (int)
+            order : 'rows', // rows, columns, masonry, random
+
+            // rows opts
+            rows : 'auto', // auto (str) or (int)
+            allow_orphans : false,
+            max_row_height : 325,
+
+            // grid opts
             shape : '16:9', // aspect-ratio (16:9)
             sizing : 'contain', // cover, contain
             align : 'middle', // top, middle, bottom
@@ -3899,8 +4398,13 @@ PhotoMosaic.Inputs = (function ($){
                     // delete image.modal;
                 } else if (self.opts.links) {
                     image.link = true;
-                    image.path = image.full;
                     image.external = self.opts.external_links;
+
+                    if (image.sizes && image.sizes.hasOwnProperty(self.opts.lightbox_rendition)) {
+                        image.path = image.sizes[self.opts.lightbox_rendition];
+                    } else {
+                        image.path = image.full;
+                    }
                 } else {
                     image.link = false;
                 }
@@ -4062,6 +4566,14 @@ PhotoMosaic.Inputs = (function ($){
                 return false;
             }
 
+            // make sure numbers are numbers
+            var exclusions = ['shape', 'modal_hash'];
+            for (var k in props) {
+                if (($.inArray(k, exclusions) == -1) && !isNaN(parseFloat(props[k]))) {
+                    props[k] = parseFloat(props[k]);
+                }
+            };
+
             this.opts = $.extend({}, this.opts, props);
 
             if (props.hasOwnProperty('layout')) {
@@ -4125,7 +4637,7 @@ PhotoMosaic.Inputs = (function ($){
                 window.PhotoMosaic.Mosaics.push({
                     'el' : this,
                     '$el' : $(this),
-                    'opts' : options,
+                    'opts' : instance.opts,
                     'instance' : instance
                 });
             }

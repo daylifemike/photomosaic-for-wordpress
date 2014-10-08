@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the settings page for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.9.1
+Version: 2.10
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -22,7 +22,7 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.9.1';
+        return '2.10';
     }
 
     public static function init() {
@@ -75,6 +75,8 @@ class PhotoMosaic {
         $defaults = array(
             'padding' => 2,
             'columns' => 0,
+            'min_columns' => 0,
+            'max_columns' => 0,
             'width' => 0,
             'height' => 0,
             'order' => 'rows',
@@ -92,6 +94,7 @@ class PhotoMosaic {
             'lightbox' => true,
             'lightbox_rel' => 'pmlightbox',
             'lightbox_group' => true,
+            'lightbox_rendition' => 'full',
             'custom_lightbox' => false,
             'custom_lightbox_name' => '',
             'custom_lightbox_params' => '{}',
@@ -166,6 +169,11 @@ class PhotoMosaic {
 
     public static function shortcode( $atts ) {
         global $post;
+
+        if ((!empty($atts['nggid']) || !empty($atts['ngaid'])) && !class_exists('nggdb')) {
+            return "<p><strong>PhotoMosaic Error:</strong> Can't find NextGen Gallery.<br/>Please make sure NextGen has been installed and activated.</p>";
+        }
+
         $post_id = intval($post->ID);
         $base = array(
             'id'        => $post_id,
@@ -192,8 +200,15 @@ class PhotoMosaic {
             }
         }
 
+        if ( strpos($settings['columns'], '-') !== false ) {
+            $range = explode('-', $settings['columns']);
+            $settings['min_columns'] = $range[0];
+            $settings['max_columns'] = $range[1];
+            $settings['columns'] = 'auto';
+        }
+
         $auto_settings = array(
-            'height', 'width', 'columns'
+            'height', 'width', 'columns', 'min_columns', 'max_columns'
         );
         $bool_settings = array(
             'center', 'prevent_crop', 'links', 'external_links', 'show_loading',
@@ -279,6 +294,8 @@ class PhotoMosaic {
                         gallery: PMalbum'.$unique.',
                         padding: '. intval($settings['padding']) .',
                         columns: '. $settings['columns'] .',
+                        min_columns: '. $settings['min_columns'] .',
+                        max_columns: '. $settings['max_columns'] .',
                         width: '. $settings['width'] .',
                         height: '. $settings['height'] .',
                         center: '. $settings['center'] .',
@@ -289,10 +306,20 @@ class PhotoMosaic {
                         loading_transition: "'. $settings['loading_transition'] .'",
                         resize_transition: '. $settings['resize_transition'] .',
                         lazyload: '. $settings['lazyload'] .',
+                        lightbox_rendition: "'. $settings['lightbox_rendition'] .'",
                         modal_name: "' . $settings['lightbox_rel'] . '",
                         modal_group: ' . $settings['lightbox_group'] . ',
                         modal_hash: "' . hash('adler32', json_encode($atts)) . '",
             ';
+
+        // these are "preview" features only available as inline atts on the shortcode
+        // this is not permanent
+        $temp_atts = array('layout', 'rows', 'allow_orphans', 'max_row_height', 'shape', 'sizing', 'align', 'orphans');
+        foreach ($temp_atts as $key) {
+            if ( !empty( $settings[$key] ) ) {
+                $output_buffer .= $key .': "'. $settings[$key] .'",';
+            }
+        }
 
         $required_atts = array('id', 'link_behavior', 'include', 'exclude', 'ids');
         foreach ( $required_atts as $key ) {
@@ -377,7 +404,7 @@ class PhotoMosaic {
 
     public static function recent_posts_images($limit = null, $category = null) {
         if ( empty($limit) ) {
-            return '';
+            $limit = 10;
         }
 
         $response = array();
@@ -393,25 +420,7 @@ class PhotoMosaic {
             $posts = array();
             $cat_map = explode( ',', $category );
             $cat_args = array_fill(0, count($cat_map), $args);
-
-            function fetch_taxonomy_categories($slug, $args){
-                $slug = trim($slug);
-                $taxonomies = explode(':', $slug);
-                $taxonomy = (count($taxonomies) > 1 ? $taxonomies[0] : 'category');
-                $slug = (count($taxonomies) > 1 ? $taxonomies[1] : $slug);
-                $taxonomy_args = array(
-                    'tax_query' => array(
-                        array(
-                            'taxonomy' => $taxonomy,
-                            'field' => 'slug',
-                            'terms' => $slug
-                        )
-                    )
-                );
-                return wp_get_recent_posts( $args + $taxonomy_args );
-            };
-
-            $cat_map = array_map("fetch_taxonomy_categories", $cat_map, $cat_args);
+            $cat_map = array_map("PhotoMosaic::fetch_taxonomy_categories", $cat_map, $cat_args);
 
             // flatten one level
             foreach ($cat_map as $cat_arr) {
@@ -1052,6 +1061,23 @@ class PhotoMosaic {
         $safe_text = wp_check_invalid_utf8( $text );
         $safe_text = _wp_specialchars( $safe_text, "double" );
         return apply_filters( 'attribute_escape', $safe_text, $text );
+    }
+
+    private static function fetch_taxonomy_categories($slug, $args){
+        $slug = trim($slug);
+        $taxonomies = explode(':', $slug);
+        $taxonomy = (count($taxonomies) > 1 ? $taxonomies[0] : 'category');
+        $slug = (count($taxonomies) > 1 ? $taxonomies[1] : $slug);
+        $taxonomy_args = array(
+            'tax_query' => array(
+                array(
+                    'taxonomy' => $taxonomy,
+                    'field' => 'slug',
+                    'terms' => $slug
+                )
+            )
+        );
+        return wp_get_recent_posts( $args + $taxonomy_args );
     }
 
     private static function makeID() {
