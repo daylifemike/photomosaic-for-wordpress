@@ -5,7 +5,7 @@ Plugin URI: http://codecanyon.net/item/photomosaic-for-wordpress/243422?ref=makf
 Description: Adds a new display template for your WordPress and NextGen galleries. See the settings page for examples and instructions.
 Author: makfak
 Author URI: http://www.codecanyon.net/user/makfak?ref=makfak
-Version: 2.10
+Version: 2.11
 GitHub Plugin URI: daylifemike/photomosaic-for-wordpress
 */
 
@@ -22,52 +22,82 @@ class PhotoMosaic {
     public static $URL_PATTERN = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
 
     public static function version () {
-        return '2.10';
+        return '2.11';
+    }
+
+    public static function oldest_supported_wp () {
+        return '3.5';
+    }
+
+    private static function in_debug_mode () {
+        $key = 'photomosaic_debug';
+        parse_str( $_SERVER['QUERY_STRING'], $query );
+        return (array_key_exists($key, $query) && ($query[$key] === 'true'));
     }
 
     public static function init() {
-        global $pagenow;
-
-        $options = get_option('photomosaic_options');
-
         add_filter( 'widget_text', 'do_shortcode' ); // Widget
         // add_filter( 'the_posts', array( __CLASS__, 'the_posts' ) ); // :: conditionally enqueue JS & CSS
         add_filter( 'post_gallery', array( __CLASS__, 'post_gallery' ), 1337, 2 ); // [gallery photomosaic="true" theme="photomosaic"]
         add_filter( 'content_edit_pre', array( __CLASS__, 'scrub_post_shortcodes' ), 1337, 2 ); // template="pm" --> theme="pm"
         add_filter( 'plugin_action_links', array( __CLASS__, 'plugin_action_links' ), 10, 2);
-
+        add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_scripts' ) );
+        add_action( 'admin_enqueue_scripts', array( __CLASS__, 'admin_enqueue_scripts' ) );
         add_action( 'admin_menu', array( __CLASS__, 'setup_admin_page') );
         add_action( 'wp_ajax_photomosaic_whatsnew', array( __CLASS__, 'ajax_handler') );
+    }
 
-        wp_register_script( 'react', '//cdnjs.cloudflare.com/ajax/libs/react/0.11.2/react.min.js', null, '0.11.2' );
-        wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.min.js', __FILE__ ), array('jquery','react'), PhotoMosaic::version());
-        wp_enqueue_script('photomosaic_js');
+    public static function enqueue_scripts () {
+        wp_register_script( 'react', '//cdnjs.cloudflare.com/ajax/libs/react/0.12.2/react.min.js', null, '0.12.2' );
+
+        if ( PhotoMosaic::in_debug_mode() ) {
+            wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.js', __FILE__ ), array('jquery','react'), PhotoMosaic::version() );
+        } else {
+            wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.min.js', __FILE__ ), array('jquery','react'), PhotoMosaic::version() );
+        }
+
+        // this sucks
+        // they could be attached to _js if _js could be run in the footer
+        // that would require that each shortcode not immediately self-invoke
+        // which would require localized scripts
+        wp_enqueue_script( 'photomosaic_fallbacks', plugins_url('/includes/vendor/noop.js', __FILE__ ), null, null, true );
+        wp_enqueue_script( 'photomosaic_js' );
         wp_enqueue_style( 'photomosaic_base_css', plugins_url('/css/photomosaic.css', __FILE__ ));
 
         if (!is_admin()) {
+            $options = get_option('photomosaic_options');
+
             if($options['lightbox']) {
                 wp_enqueue_style( 'photomosaic_prettyphoto_css', plugins_url('/includes/vendor/prettyphoto/prettyphoto.css', __FILE__ ));
             }
 
             add_shortcode( 'photoMosaic', array( __CLASS__, 'shortcode' ) );
             add_shortcode( 'photomosaic', array( __CLASS__, 'shortcode' ) );
+        }
+    }
 
-        } else {
-            if ( isset($_GET['page']) ) {
-                if ( $_GET['page'] == "photoMosaic.php" || $_GET['page'] == "photomosaic.php"  || $_GET['page'] == "photomosaic" ) {
-                    wp_register_script( 'photomosaic_codemirror_js', plugins_url('/includes/vendor/codemirror/codemirror.js', __FILE__ ));
-                    wp_enqueue_script( 'photomosaic_codemirror_jsmode_js', plugins_url('/includes/vendor/codemirror/javascript.js', __FILE__ ), array('photomosaic_codemirror_js'));
-                    wp_enqueue_script( 'photomosaic_codemirror_cssmode_js', plugins_url('/includes/vendor/codemirror/css.js', __FILE__ ), array('photomosaic_codemirror_js'));
-                    wp_enqueue_style( 'photomosaic_codemirror_css', plugins_url('/includes/vendor/codemirror/codemirror.css', __FILE__ ));
+    public static function admin_enqueue_scripts () {
+        global $pagenow;
 
-                    wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic_js', 'photomosaic_codemirror_js'), PhotoMosaic::version());
-                    wp_enqueue_style( 'photomosaic_admin_css', plugins_url('/css/photomosaic.admin.css', __FILE__ ));
-                }
+        wp_register_script( 'react', '//cdnjs.cloudflare.com/ajax/libs/react/0.12.2/react.min.js', null, '0.12.2' );
+        wp_register_script( 'photomosaic_js', plugins_url('/js/photomosaic.min.js', __FILE__ ), array('jquery','react'), PhotoMosaic::version() );
+
+        wp_enqueue_script( 'photomosaic_js' );
+
+        if ( isset($_GET['page']) ) {
+            if ( $_GET['page'] == "photoMosaic.php" || $_GET['page'] == "photomosaic.php"  || $_GET['page'] == "photomosaic" ) {
+                wp_register_script( 'photomosaic_codemirror_js', plugins_url('/includes/vendor/codemirror/codemirror.js', __FILE__ ));
+                wp_enqueue_script( 'photomosaic_codemirror_jsmode_js', plugins_url('/includes/vendor/codemirror/javascript.js', __FILE__ ), array('photomosaic_codemirror_js'));
+                wp_enqueue_script( 'photomosaic_codemirror_cssmode_js', plugins_url('/includes/vendor/codemirror/css.js', __FILE__ ), array('photomosaic_codemirror_js'));
+                wp_enqueue_style( 'photomosaic_codemirror_css', plugins_url('/includes/vendor/codemirror/codemirror.css', __FILE__ ));
+
+                wp_enqueue_script( 'photomosaic_admin_js', plugins_url('/js/photomosaic.admin.js', __FILE__ ), array('photomosaic_js', 'photomosaic_codemirror_js'), PhotoMosaic::version());
+                wp_enqueue_style( 'photomosaic_admin_css', plugins_url('/css/photomosaic.admin.css', __FILE__ ));
             }
+        }
 
-            if ( isset( $_GET['post'] ) || in_array( $pagenow, array( 'post-new.php' ) ) ) {
-                wp_enqueue_script( 'photomosaic_editor_js', plugins_url('/js/photomosaic.editor.js', __FILE__ ), array('photomosaic_js'));
-            }
+        if ( isset( $_GET['post'] ) || in_array( $pagenow, array( 'post-new.php' ) ) ) {
+            wp_enqueue_script( 'photomosaic_editor_js', plugins_url('/js/photomosaic.editor.js', __FILE__ ), array('photomosaic_js'));
         }
     }
 
@@ -170,6 +200,15 @@ class PhotoMosaic {
     public static function shortcode( $atts ) {
         global $post;
 
+        $current = get_bloginfo( 'version' );
+
+        if ( $current && ( PhotoMosaic::comparable_version( $current ) < PhotoMosaic::comparable_version( PhotoMosaic::oldest_supported_wp() ) ) ) {
+            return "<p><strong>PhotoMosaic Error:</strong>
+                    This site is running WordPress v" . $current . ".
+                    As indicated on the <a href=\"http://codecanyon.net/item/photomosaic-for-wordpress/243422\">CodeCanyon Product Page</a>,
+                    PhotoMosaic only supports WordPress v" . PhotoMosaic::oldest_supported_wp() . " and newer.</p>";
+        }
+
         if ((!empty($atts['nggid']) || !empty($atts['ngaid'])) && !class_exists('nggdb')) {
             return "<p><strong>PhotoMosaic Error:</strong> Can't find NextGen Gallery.<br/>Please make sure NextGen has been installed and activated.</p>";
         }
@@ -217,8 +256,10 @@ class PhotoMosaic {
         $int_false_settings = array('lazyload');
 
         foreach ( $auto_settings as $key ) {
-            if(intval($settings[$key]) == 0){
+            if( intval($settings[$key]) == 0 ){
                 $settings[$key] = "'auto'";
+            } elseif ( strpos($settings[$key], '%') !== false ) {
+                $settings[$key] = "'" . $settings[$key] . "'";
             } else {
                 $settings[$key] = intval($settings[$key]);
             }
@@ -242,6 +283,10 @@ class PhotoMosaic {
             }
         }
 
+        if ( empty($atts['limit']) ) {
+            $atts['limit'] = null;
+        }
+
         $unique = PhotoMosaic::makeID();
 
         $output_buffer = '
@@ -257,7 +302,7 @@ class PhotoMosaic {
         } else if ( !empty($atts['ngaid']) ) {
             $output_buffer .= PhotoMosaic::gallery_from_nextgen($atts['ngaid'], $settings['link_behavior'], 'album');
         } else if ( !empty($atts['category']) ) {
-            if ( $atts['category'] == 'recent' ) {
+            if ( $atts['category'] == 'recent' || $atts['category'] == 'latest' ) {
                 $recent_images = PhotoMosaic::recent_posts_images($atts['limit']);
             } else {
                 $recent_images = PhotoMosaic::recent_posts_images($atts['limit'], $atts['category']);
@@ -291,6 +336,7 @@ class PhotoMosaic {
         $output_buffer .='
                 JQPM(document).ready(function() {
                     JQPM("#photoMosaicTarget'.$unique.'").photoMosaic({
+                        id: "'.$unique.'",
                         gallery: PMalbum'.$unique.',
                         padding: '. intval($settings['padding']) .',
                         columns: '. $settings['columns'] .',
@@ -340,7 +386,7 @@ class PhotoMosaic {
         if( $settings['lightbox'] == 'true' || $settings['custom_lightbox'] == 'true' ) {
             if( $settings['lightbox'] == 'true' ) {
                 $output_buffer .='
-                            $mosaic.find("a[rel^=\''.$settings['lightbox_rel'].'\']").prettyPhoto({
+                            $mosaic.find("a.photomosaic-item, .gallery-item a").prettyPhoto({
                                 overlay_gallery: false,
                                 slideshow: false,
                                 theme: "pp_default",
@@ -364,18 +410,18 @@ class PhotoMosaic {
                             var $a;
                             var self = this;
 
-                            jQuery("a", mosaic).each(function () {
+                            $items.each(function () {
                                 $a = jQuery(this);
                                 $img = $a.find("img");
                                 id = $img.attr("id");
-                                data = PhotoMosaic.Utils.deepSearch( self.images, "id", id );
+                                data = PhotoMosaic.Utils.deepSearch( self.opts.gallery, "id", id );
 
                                 $img.attr( data.jetpack );
 
                                 $a.addClass("gallery-item");
                             });
 
-                            jQuery(mosaic).parent().addClass("gallery");
+                            $mosaic.parent().addClass("gallery");
             ';
         }
 
@@ -394,7 +440,11 @@ class PhotoMosaic {
             $output_buffer .= apply_filters( 'gallery_style', $gallery_style . "\n\t\t" . $gallery_div );
         } else {
             $output_buffer .= $gallery_div;
-            $output_buffer .= PhotoMosaic::wordpress_gallery_shortcode($atts);
+            if ( !empty($atts['nggid']) || !empty($atts['nggaid']) ) {
+                $output_buffer .= PhotoMosaic::nextgen_gallery_fallback( $atts, $unique );
+            } else {
+                $output_buffer .= PhotoMosaic::wordpress_gallery_fallback( $atts, $unique );
+            }
         }
 
         $output_buffer .='</div>';
@@ -429,11 +479,17 @@ class PhotoMosaic {
                 }
             }
         }
-
         foreach ($posts as $post) {
             $id = get_post_thumbnail_id( $post['ID'] );
+            $title = $post['post_title'];
+
             if ( !empty( $id ) ) {
-                $response[ $id ] = get_permalink( $post['ID'] );
+                $response[ $id ] = array(
+                    'url' => get_permalink( $post['ID'] ),
+                    'title' => $title
+                );
+            } else {
+                $response[ $id ] = "";
             }
         }
 
@@ -522,7 +578,9 @@ class PhotoMosaic {
                 } else if ( $link_behavior === 'attachment' ) {
                     $url_data = ',"url": "' . $image_attachment_page . '"';
                 } else if ( is_array( $link_behavior ) ) {
-                    $url_data = ',"url": "' . $link_behavior[ $_post->ID ] . '"';
+                    // this is a category gallery - link to the post and set the post_title as the caption
+                    $url_data = ',"url": "' . $link_behavior[ $_post->ID ]['url'] . '"';
+                    $image_caption = $link_behavior[ $_post->ID ]['title'];
                 } else {
                     $url_data = '';
                 }
@@ -656,8 +714,12 @@ class PhotoMosaic {
 
             foreach ( $images as $_post ) {
                 $image_thumbnail = wp_get_attachment_image_src($_post->ID , 'thumbnail');
-                array_push( $widths, $image_thumbnail[1] );
-                array_push( $heights, $image_thumbnail[2] );
+                if ( !empty( $image_thumbnail[1] ) ) {
+                    array_push( $widths, $image_thumbnail[1] );
+                }
+                if ( !empty( $image_thumbnail[2] ) ) {
+                    array_push( $heights, $image_thumbnail[2] );
+                }
             }
 
         } else {
@@ -671,7 +733,6 @@ class PhotoMosaic {
                 foreach ($galleryIDs as $key => $galleryID) {
                     $images = array_merge( $images, nggdb::get_gallery($galleryID) );
                 }
-
             }
 
             foreach ($images as $key => $image) {
@@ -681,18 +742,24 @@ class PhotoMosaic {
         }
 
         if ( !empty($images) ) {
-            $width_count = array_count_values($widths);
-            $width_val = array_search( max($width_count), $width_count );
+            $val = '0';
 
-            $height_count = array_count_values($heights);
-            $height_val = array_search( max($height_count), $height_count );
+            // People modify things to wp_get_attachment_image_src doesn't return width/height data.
+            // There's nothing we can do to protect these people from themselves.
+            if ( !empty($widths) && !empty($heights) ) {
+                $width_count = array_count_values($widths);
+                $width_val = array_search( max($width_count), $width_count );
 
-            if ( count($width_count) === 1 && count($height_count) === 1 ) {
-                // fixed dimensions
-                $val = '1';
-            } else {
-                // proportional
-                $val = (count($width_count) === 1 ? $width_val : $height_val);
+                $height_count = array_count_values($heights);
+                $height_val = array_search( max($height_count), $height_count );
+
+                if ( count($width_count) === 1 && count($height_count) === 1 ) {
+                    // fixed dimensions
+                    $val = '1';
+                } else {
+                    // proportional
+                    $val = (count($width_count) === 1 ? $width_val : $height_val);
+                }
             }
 
             if ( empty($atts['nggid']) && empty($atts['ngaid']) ) {
@@ -730,6 +797,7 @@ class PhotoMosaic {
                 $isPhotoMosaic = true;
             }
         } else if ( isset($atts['theme']) ) {
+            // deprecated in 3.0.0
             if ( $atts['theme'] === 'photomosaic' ) {
                 $isPhotoMosaic = true;
             }
@@ -868,155 +936,198 @@ class PhotoMosaic {
         }
     }
 
-    public static function wordpress_gallery_shortcode($attr) {
-        // this function is taken directly from the WP (3.8.1) core (wp-includes/media.php#gallery_shortcode)
-        // with 2 exceptions:
-        // - the post_gallery filter call has been commented-out
-        // - the entire output is wrapped in a noscript
-        $post = get_post();
+    public static function wordpress_gallery_fallback($attr, $unique) {
+        // this function is taken directly from the WP (4.1.1) core (wp-includes/media.php#gallery_shortcode)
 
-        static $instance = 0;
-        $instance++;
-
-        if ( ! empty( $attr['ids'] ) ) {
-            // 'ids' is explicitly ordered, unless you specify otherwise.
-            if ( empty( $attr['orderby'] ) )
-                $attr['orderby'] = 'post__in';
-            $attr['include'] = $attr['ids'];
-        }
-
-        // !!! EDIT - COMMENTED OUT !!!
-        // Allow plugins/themes to override the default gallery template.
-        // $output = apply_filters('post_gallery', '', $attr);
-        // if ( $output != '' )
-        //     return $output;
-
-        // We're trusting author input, so let's at least make sure it looks like a valid orderby statement
-        if ( isset( $attr['orderby'] ) ) {
-            $attr['orderby'] = sanitize_sql_orderby( $attr['orderby'] );
-            if ( !$attr['orderby'] )
-                unset( $attr['orderby'] );
-        }
-
-        extract(shortcode_atts(array(
-            'order'      => 'ASC',
-            'orderby'    => 'menu_order ID',
-            'id'         => $post ? $post->ID : 0,
-            'itemtag'    => 'dl',
-            'icontag'    => 'dt',
-            'captiontag' => 'dd',
-            'columns'    => 3,
-            'size'       => 'thumbnail',
-            'include'    => '',
-            'exclude'    => '',
-            'link'       => ''
-        ), $attr, 'gallery'));
-
-        $id = intval($id);
-        if ( 'RAND' == $order )
-            $orderby = 'none';
-
-        if ( !empty($include) ) {
-            $_attachments = get_posts( array('include' => $include, 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $order, 'orderby' => $orderby) );
-
-            $attachments = array();
-            foreach ( $_attachments as $key => $val ) {
-                $attachments[$val->ID] = $_attachments[$key];
+        if ( empty( $attr['link'] ) ) {
+            if ( $attr['link_behavior'] == 'image' ) {
+                $attr['link'] = 'file';
+            } else if ( $attr['link_behavior'] == 'none' ) {
+                $attr['link'] = 'none';
+            } else if ( $attr['link_behavior'] == 'attachment' ) {
+                // do nothing - attachment is the default
             }
-        } elseif ( !empty($exclude) ) {
-            $attachments = get_children( array('post_parent' => $id, 'exclude' => $exclude, 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $order, 'orderby' => $orderby) );
-        } else {
-            $attachments = get_children( array('post_parent' => $id, 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $order, 'orderby' => $orderby) );
         }
 
-        if ( empty($attachments) )
-            return '';
+        // === BEGIN gallery_shortcode === //
+            $post = get_post();
 
-        if ( is_feed() ) {
-            $output = "\n";
-            foreach ( $attachments as $att_id => $attachment )
-                $output .= wp_get_attachment_link($att_id, $size, true) . "\n";
-            return $output;
-        }
+            static $instance = 0;
+            $instance++;
 
-        $itemtag = tag_escape($itemtag);
-        $captiontag = tag_escape($captiontag);
-        $icontag = tag_escape($icontag);
-        $valid_tags = wp_kses_allowed_html( 'post' );
-        if ( ! isset( $valid_tags[ $itemtag ] ) )
-            $itemtag = 'dl';
-        if ( ! isset( $valid_tags[ $captiontag ] ) )
-            $captiontag = 'dd';
-        if ( ! isset( $valid_tags[ $icontag ] ) )
-            $icontag = 'dt';
-
-        $columns = intval($columns);
-        $itemwidth = $columns > 0 ? floor(100/$columns) : 100;
-        $float = is_rtl() ? 'right' : 'left';
-
-        $selector = "gallery-{$instance}";
-
-        $gallery_style = $gallery_div = '';
-        if ( apply_filters( 'use_default_gallery_style', true ) )
-            $gallery_style = "
-            <style type='text/css'>
-                #{$selector} {
-                    margin: auto;
+            if ( ! empty( $attr['ids'] ) ) {
+                // 'ids' is explicitly ordered, unless you specify otherwise.
+                if ( empty( $attr['orderby'] ) ) {
+                    $attr['orderby'] = 'post__in';
                 }
-                #{$selector} .gallery-item {
-                    float: {$float};
-                    margin-top: 10px;
-                    text-align: center;
-                    width: {$itemwidth}%;
+                $attr['include'] = $attr['ids'];
+            }
+
+            // !!! EDIT - Commented-Out
+            // $output = apply_filters( 'post_gallery', '', $attr );
+            // if ( $output != '' ) {
+            //     return $output;
+            // }
+
+            $html5 = current_theme_supports( 'html5', 'gallery' );
+            $atts = shortcode_atts( array(
+                'order'      => 'ASC',
+                'orderby'    => 'menu_order ID',
+                'id'         => $post ? $post->ID : 0,
+                'itemtag'    => $html5 ? 'figure'     : 'dl',
+                'icontag'    => $html5 ? 'div'        : 'dt',
+                'captiontag' => $html5 ? 'figcaption' : 'dd',
+                'columns'    => 3,
+                'size'       => 'thumbnail',
+                'include'    => '',
+                'exclude'    => '',
+                'link'       => ''
+            ), $attr, 'gallery' );
+
+            $id = intval( $atts['id'] );
+
+            if ( ! empty( $atts['include'] ) ) {
+                $_attachments = get_posts( array( 'include' => $atts['include'], 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $atts['order'], 'orderby' => $atts['orderby'] ) );
+
+                $attachments = array();
+                foreach ( $_attachments as $key => $val ) {
+                    $attachments[$val->ID] = $_attachments[$key];
                 }
-                #{$selector} img {
-                    border: 2px solid #cfcfcf;
+            } elseif ( ! empty( $atts['exclude'] ) ) {
+                $attachments = get_children( array( 'post_parent' => $id, 'exclude' => $atts['exclude'], 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $atts['order'], 'orderby' => $atts['orderby'] ) );
+            } else {
+                $attachments = get_children( array( 'post_parent' => $id, 'post_status' => 'inherit', 'post_type' => 'attachment', 'post_mime_type' => 'image', 'order' => $atts['order'], 'orderby' => $atts['orderby'] ) );
+            }
+
+            if ( empty( $attachments ) ) {
+                return '';
+            }
+
+            if ( is_feed() ) {
+                $output = "\n";
+                foreach ( $attachments as $att_id => $attachment ) {
+                    $output .= wp_get_attachment_link( $att_id, $atts['size'], true ) . "\n";
                 }
-                #{$selector} .gallery-caption {
-                    margin-left: 0;
+                return $output;
+            }
+
+            $itemtag = tag_escape( $atts['itemtag'] );
+            $captiontag = tag_escape( $atts['captiontag'] );
+            $icontag = tag_escape( $atts['icontag'] );
+            $valid_tags = wp_kses_allowed_html( 'post' );
+            if ( ! isset( $valid_tags[ $itemtag ] ) ) {
+                $itemtag = 'dl';
+            }
+            if ( ! isset( $valid_tags[ $captiontag ] ) ) {
+                $captiontag = 'dd';
+            }
+            if ( ! isset( $valid_tags[ $icontag ] ) ) {
+                $icontag = 'dt';
+            }
+
+            $columns = intval( $atts['columns'] );
+            $itemwidth = $columns > 0 ? floor(100/$columns) : 100;
+            $float = is_rtl() ? 'right' : 'left';
+
+            $selector = "gallery-{$instance}";
+
+            $gallery_style = '';
+
+            if ( apply_filters( 'use_default_gallery_style', ! $html5 ) ) {
+                $gallery_style = "
+                <style type='text/css'>
+                    #{$selector} {
+                        margin: auto;
+                    }
+                    #{$selector} .gallery-item {
+                        float: {$float};
+                        margin-top: 10px;
+                        text-align: center;
+                        width: {$itemwidth}%;
+                    }
+                    #{$selector} img {
+                        border: 2px solid #cfcfcf;
+                    }
+                    #{$selector} .gallery-caption {
+                        margin-left: 0;
+                    }
+                    /* see gallery_shortcode() in wp-includes/media.php */
+                </style>\n\t\t";
+            }
+
+            $size_class = sanitize_html_class( $atts['size'] );
+            $gallery_div = "<div id='$selector' class='gallery galleryid-{$id} gallery-columns-{$columns} gallery-size-{$size_class}'>";
+
+            $output = apply_filters( 'gallery_style', $gallery_style . $gallery_div );
+
+            $i = 0;
+            foreach ( $attachments as $id => $attachment ) {
+
+                $attr = ( trim( $attachment->post_excerpt ) ) ? array( 'aria-describedby' => "$selector-$id" ) : '';
+                if ( ! empty( $atts['link'] ) && 'file' === $atts['link'] ) {
+                    $image_output = wp_get_attachment_link( $id, $atts['size'], false, false, false, $attr );
+                } elseif ( ! empty( $atts['link'] ) && 'none' === $atts['link'] ) {
+                    $image_output = wp_get_attachment_image( $id, $atts['size'], false, $attr );
+                } else {
+                    $image_output = wp_get_attachment_link( $id, $atts['size'], true, false, false, $attr );
                 }
-                /* see gallery_shortcode() in wp-includes/media.php */
-            </style>";
-        $size_class = sanitize_html_class( $size );
-        $gallery_div = "<div id='$selector' class='gallery galleryid-{$id} gallery-columns-{$columns} gallery-size-{$size_class}'>";
-        $output = apply_filters( 'gallery_style', $gallery_style . "\n\t\t" . $gallery_div );
+                $image_meta  = wp_get_attachment_metadata( $id );
 
-        $i = 0;
-        foreach ( $attachments as $id => $attachment ) {
-            if ( ! empty( $link ) && 'file' === $link )
-                $image_output = wp_get_attachment_link( $id, $size, false, false );
-            elseif ( ! empty( $link ) && 'none' === $link )
-                $image_output = wp_get_attachment_image( $id, $size, false );
-            else
-                $image_output = wp_get_attachment_link( $id, $size, true, false );
-
-            $image_meta  = wp_get_attachment_metadata( $id );
-
-            $orientation = '';
-            if ( isset( $image_meta['height'], $image_meta['width'] ) )
-                $orientation = ( $image_meta['height'] > $image_meta['width'] ) ? 'portrait' : 'landscape';
-
-            $output .= "<{$itemtag} class='gallery-item'>";
-            $output .= "
-                <{$icontag} class='gallery-icon {$orientation}'>
-                    $image_output
-                </{$icontag}>";
-            if ( $captiontag && trim($attachment->post_excerpt) ) {
+                $orientation = '';
+                if ( isset( $image_meta['height'], $image_meta['width'] ) ) {
+                    $orientation = ( $image_meta['height'] > $image_meta['width'] ) ? 'portrait' : 'landscape';
+                }
+                $output .= "<{$itemtag} class='gallery-item'>";
                 $output .= "
-                    <{$captiontag} class='wp-caption-text gallery-caption'>
-                    " . wptexturize($attachment->post_excerpt) . "
-                    </{$captiontag}>";
+                    <{$icontag} class='gallery-icon {$orientation}'>
+                        $image_output
+                    </{$icontag}>";
+                if ( $captiontag && trim($attachment->post_excerpt) ) {
+                    $output .= "
+                        <{$captiontag} class='wp-caption-text gallery-caption' id='$selector-$id'>
+                        " . wptexturize($attachment->post_excerpt) . "
+                        </{$captiontag}>";
+                }
+                $output .= "</{$itemtag}>";
+                if ( ! $html5 && $columns > 0 && ++$i % $columns == 0 ) {
+                    $output .= '<br style="clear: both" />';
+                }
             }
-            $output .= "</{$itemtag}>";
-            if ( $columns > 0 && ++$i % $columns == 0 )
-                $output .= '<br style="clear: both" />';
+
+            if ( ! $html5 && $columns > 0 && $i % $columns !== 0 ) {
+                $output .= "
+                    <br style='clear: both' />";
+            }
+
+            $output .= "
+                </div>\n";
+        // === END gallery_shortcode === //
+
+
+        PhotoMosaic::localize( 'photomosaic_fallbacks', 'PhotoMosaic["Fallbacks"]["'. $unique .'"]', $output );
+
+        $output = "<noscript>" . $output . "</noscript>";
+
+        return $output;
+    }
+
+    public static function nextgen_gallery_fallback($attr, $unique) {
+        $args = array('display_type' => 'photocrati-nextgen_basic_thumbnails');
+
+        if ( !empty($attr['nggid']) ) {
+            $args = array_merge( $args, array(
+                'gallery_ids' => $attr['nggid']
+            ) );
+        } else if ( !empty($attr['nggaid']) ) {
+            $args = array_merge( $args, array(
+                'album_ids' => $attr['nggaid']
+            ) );
         }
 
-        $output .= "
-                <br style='clear: both;' />
-            </div>\n";
+        $output = M_Gallery_Display::display_images( $args );
 
-        // !!! EDIT - the following line has been added !!!
+        PhotoMosaic::localize( 'photomosaic_fallbacks', 'PhotoMosaic["Fallbacks"]["'. $unique .'"]', $output );
+
         $output = "<noscript>" . $output . "</noscript>";
 
         return $output;
@@ -1084,6 +1195,39 @@ class PhotoMosaic {
         // a modification of the GUID function in the Phunction framework
         // http://sourceforge.net/projects/phunction/
         return sprintf('%04X%04X%04X', mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(0, 65535));
+    }
+
+    private static function localize( $handle, $object_name, $l10n ) {
+        // identical to WP's wp-includes/class.wp-scripts::localize
+        // except $this-> became $wp_scripts->
+        global $wp_scripts;
+
+        if ( $handle === 'jquery' )
+            $handle = 'jquery-core';
+
+        if ( is_array($l10n) && isset($l10n['l10n_print_after']) ) { // back compat, preserve the code in 'l10n_print_after' if present
+            $after = $l10n['l10n_print_after'];
+            unset($l10n['l10n_print_after']);
+        }
+
+        foreach ( (array) $l10n as $key => $value ) {
+            if ( !is_scalar($value) )
+                continue;
+
+            $l10n[$key] = html_entity_decode( (string) $value, ENT_QUOTES, 'UTF-8');
+        }
+
+        $script = "$object_name = " . wp_json_encode( $l10n ) . ';';
+
+        if ( !empty($after) )
+            $script .= "\n$after;";
+
+        $data = $wp_scripts->get_data( $handle, 'data' );
+
+        if ( !empty( $data ) )
+            $script = "$data\n$script";
+
+        return $wp_scripts->add_data( $handle, 'data', $script );
     }
 
 } // end PhotoMosaic

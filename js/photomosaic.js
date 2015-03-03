@@ -36,7 +36,9 @@
     var $sub = jQuery.sub();
 
     registerNamespace('JQPM', $sub || {});
+    registerNamespace('PhotoMosaic');
     registerNamespace('PhotoMosaic.$', $sub || {});
+    registerNamespace('PhotoMosaic.version', '2.11');
     registerNamespace('PhotoMosaic.Utils');
     registerNamespace('PhotoMosaic.Inputs');
     registerNamespace('PhotoMosaic.Loader');
@@ -44,7 +46,24 @@
     registerNamespace('PhotoMosaic.Plugins');
     registerNamespace('PhotoMosaic.ErrorChecks');
     registerNamespace('PhotoMosaic.Mosaics', []);
-    registerNamespace('PhotoMosaic.version', '2.10');
+    registerNamespace('PhotoMosaic.Fallbacks');
+    registerNamespace('PhotoMosaic.each', function (callback) {
+        PhotoMosaic.$.each( PhotoMosaic.Mosaics, function (i, mosaic) {
+            // this = the raw target element
+            // arg[0] = the JQPM instance
+            // arg[1] = $( this )
+            // arg[2] = direct access to $(this).photoMosaic() w/o all the typing
+            // arg[3] = index of mosaic in list of mosaics
+            callback.apply(mosaic.el, [
+                PhotoMosaic.$,
+                mosaic.$el,
+                function (args) {
+                    mosaic.$el.photoMosaic.apply(mosaic.$el, [args]);
+                },
+                i
+            ]);
+        });
+    });
 
 }(jQuery, window));
 /*
@@ -1440,7 +1459,7 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
 
 }).call(this);
 /*
-    Version: 3.1.5e
+    Version: 3.1.5f
     Modified by Mike Kafka (http://codecanyon.net/user/makfak) to serve my own purposes
     # b
      - new jQuery namespace (JQPM)
@@ -1455,6 +1474,8 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
      - changed viewport buffer 200 >>> 100 (~#600)
      - locked the overlay to the screen (CSS)
      - removed the .ppt bumper (CSS)
+    #f
+     - changed default 'horizontal_padding' value to match the default theme (what's with the check ~#164)
 */
 /* ------------------------------------------------------------------------
     Class: prettyPhoto
@@ -1480,7 +1501,7 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
             default_height: 344,
             counter_separator_label: '/', /* The separator for the gallery counter 1 "of" 2 */
             theme: 'pp_default', /* light_rounded / dark_rounded / light_square / dark_square / facebook */
-            horizontal_padding: 20, /* The padding on each side of the picture */
+            horizontal_padding: 16, /* The padding on each side of the picture */
             hideflash: false, /* Hides all the flash object on a page, set to TRUE if flash appears over prettyPhoto */
             wmode: 'opaque', /* Set the flash wmode attribute */
             autoplay: true, /* Automatically start videos: True/False */
@@ -2501,6 +2522,33 @@ PhotoMosaic.Utils = (function(){
             return images;
         },
 
+        // setImageConstraint : function (images, layout, sizing) {
+        //     var prefix = "photomosaic-constrain-";
+        //     var image = null;
+        //     var container_is_larger = null;
+        //     var sizing = sizing || 'cover';
+
+        //     function constrainWhichDimension (container_is_larger) {
+        //         var dim = "width";
+        //         if ((container_is_larger && (sizing === 'contain')) ||
+        //             (!container_is_larger && (sizing === 'cover'))) {
+        //             dim = "height";
+        //         }
+        //         return dim;
+        //     }
+
+        //     for (var i = 0; i < images.length; i++) {
+        //         image = images[i];
+        //         container_is_larger = (image.width.container / image.height.container) > (image.width.original / image.height.original);
+
+        //         image.constraint = prefix + constrainWhichDimension(container_is_larger);
+        //     }
+
+        //     images[i] = image;
+
+        //     return images;
+        // },
+
         decodeHTML : function (str) {
             var e = document.createElement('div');
             e.innerHTML = str;
@@ -2601,6 +2649,11 @@ PhotoMosaic.ErrorChecks = (function($){
             }
             return false;
         },
+        nonModernBrowser: function () {
+            // first 2 = can't handle React
+            // last = can't position mosaic-items
+            return (!Array.isArray || !Object.freeze || !PhotoMosaic.Plugins.Modernizr.csstransforms);
+        },
 // these got moved into layouts/columns.js
         imageDimensions: function (images) {
             var to_delete = [];
@@ -2695,6 +2748,8 @@ PhotoMosaic.Inputs = (function ($){
 }(window.JQPM));
 (function ($) {
     var self = null;
+    var loading_class = "photomosaic-loading";
+    var loaded_class = "photomosaic-loaded";
 
     PhotoMosaic.Loader = function ($container, mosaic) {
         self = this;
@@ -2753,9 +2808,9 @@ PhotoMosaic.Inputs = (function ($){
                 // if you don't want a loading transition OR it's handled by CSS
                 if ( self.opts.loading_transition === 'none' || PhotoMosaic.Plugins.Modernizr.csstransitions ) {
                     var $image = $(image.img);
-                    var $parent = $image.parents('span.loading, a.loading');
+                    var $parent = $image.parents('.' + loading_class);
                     var toggleClasses = function () {
-                        $parent.addClass('loaded');
+                        $parent.addClass(loaded_class);
                         $image.off(self.mosaic._transition_end_event_name);
                     };
 
@@ -2764,7 +2819,7 @@ PhotoMosaic.Inputs = (function ($){
                         toggleClasses
                     );
 
-                    $parent.removeClass('loading');
+                    $parent.removeClass(loading_class);
 
                 } else {
                     // you want a transition but the browser doesn't support CSS Transitions... fade (old IEs)
@@ -2772,7 +2827,7 @@ PhotoMosaic.Inputs = (function ($){
                         { 'opacity' : '1' },
                         self.opts.resize_transition_settings.duration * 1000,
                         function(){
-                            $(this).parents('span.loading, a.loading').removeClass('loading');
+                            $(this).parents('.' + loading_class).removeClass(loading_class);
                         }
                     );
                 }
@@ -2811,11 +2866,11 @@ PhotoMosaic.Inputs = (function ($){
             setTimeout(function () {
                 var $mosaic = self.mosaic.obj.find('.photoMosaic')
                 var $images = $mosaic.children('a, span'); 
-                var $loading = $images.filter('.loading'); 
+                var $loading = $images.filter('.' + loading_class);
 
                 // transitionend fires for each proprty being transitioned, we only care about when the last one ends
                 var toggleClasses = PhotoMosaic.Utils.debounce(function () {
-                    $mosaic.removeClass('loading').addClass('loaded');
+                    $mosaic.removeClass(loading_class).addClass(loaded_class);
                     self.mosaic.obj.off(self.mosaic._transition_end_event_name);
                 }, 1000);
 
@@ -2831,6 +2886,31 @@ PhotoMosaic.Inputs = (function ($){
 }(window.JQPM));
 (function ($) {
     PhotoMosaic.Layouts.Common = {
+        getRelativeWidth : function (_options, opts, node) {
+            // auto = 100%
+            return this.getRelativeDimenion(_options, opts, node, 'width', node.width());
+        },
+
+        getRelativeHeight : function (_options, opts, node) {
+            // auto != 100%
+            return this.getRelativeDimenion(_options, opts, node, 'height', false);
+        },
+
+        getRelativeDimenion : function (_options, opts, node, dim, fallback) {
+            if (opts[dim] && opts[dim] !== 'auto') {
+                if (typeof(_options[dim]) == 'number') {
+                    return opts[dim];
+                } else if (_options[dim].indexOf('%') > -1) {
+                    return (node[dim]() * (parseInt(_options[dim], 10) / 100));
+                } else {
+                    // I can't imaging what wouldn't be 'auto', a %, or an int
+                    return fallback;
+                }
+            } else {
+                return fallback;
+            }
+        },
+
         makeColumnBuckets : function (opts) {
             var columns = [];
             var num_cols = 0;
@@ -2840,7 +2920,8 @@ PhotoMosaic.Inputs = (function ($){
             var i = 0;
 
             if (opts.columns && opts.columns !== 'auto') {
-                num_cols = opts.columns;
+                num_images = opts.gallery.length;
+                num_cols = (num_images < opts.columns) ? num_images : opts.columns;
             } else {
                 // TODO : make this less lame
                 max_width = opts.width;
@@ -3083,9 +3164,7 @@ PhotoMosaic.Inputs = (function ($){
             var column_width = null;
             var mosaic_height = 0;
 
-            if (this._options.width === 'auto' || this._options.width == 0) {
-                this.opts.width = this.node.width();
-            }
+            this.opts.width = PhotoMosaic.Layouts.Common.getRelativeWidth( this._options, this.opts, this.node );
 
             // determine the number of columns
             this.columns = columns = PhotoMosaic.Layouts.Common.makeColumnBuckets( this.opts );
@@ -3143,8 +3222,10 @@ PhotoMosaic.Inputs = (function ($){
         },
 
         getMosaicHeight : function (columns) {
-            if (this.opts.height && this.opts.height !== 'auto') {
-                return this.opts.height;
+            var auto_height = PhotoMosaic.Layouts.Common.getRelativeHeight( this._options, this.opts, this.node );
+
+            if (auto_height) {
+                return auto_height;
             }
 
             var column_heights = PhotoMosaic.Layouts.Common.getColumnHeights( this.imagesById, columns, this.opts );
@@ -3316,12 +3397,11 @@ PhotoMosaic.Inputs = (function ($){
             var images = this.images;
             var rows = null;
 
-            if (this._options.width === 'auto' || this._options.width == 0) {
-                this.opts.width = this.node.width();
-            }
+            this.opts.width = PhotoMosaic.Layouts.Common.getRelativeWidth( this._options, this.opts, this.node );
+            this.opts.height = PhotoMosaic.Layouts.Common.getRelativeDimenion( this._options, this.opts, this.node, 'height', this.node.height());
 
             // look for conflicting settings
-            this.opts = this.errorChecks.initial( this.opts );
+            this.opts = this.errorChecks.initial( this._options, this.opts );
 
             // scale images to the tallest height
             images = this.scaleImagesToHeight( images, this.opts.max_row_height );
@@ -3332,7 +3412,7 @@ PhotoMosaic.Inputs = (function ($){
             // adjust the groups to get the desired number of rows
             if (
                 (this.opts.rows === 'auto' || this.opts.rows === 0)
-                && (this.opts.height !== 'auto' && this.opts.height !== 0)
+                && (this._options.height !== 'auto' && this._options.height !== 0)
             ) {
                 rows = this.adjustNumberOfRowsByHeight( images, rows, this.opts.height );
             } else {
@@ -3351,7 +3431,7 @@ PhotoMosaic.Inputs = (function ($){
                 rows = this.normalizeOrphanRowHeight( rows, this.opts.width );
             }
 
-            if (this.opts.height !== 'auto' && this.opts.height !== 0) {
+            if (this._options.height !== 'auto' && this._options.height !== 0) {
                 rows = this.setMosaicHeight( images, rows, this.opts.height );
             }
 
@@ -3538,11 +3618,6 @@ PhotoMosaic.Inputs = (function ($){
                     diff--;
                 }
             } else {
-                console.log(
-                    Math.abs(diff),
-                    (container_width / 10),
-                    Math.abs(diff) < (container_width / 10)
-                );
                 if (Math.abs(diff) < (container_width / 10)) {
                     // scale up
                     while(diff < 0) {
@@ -3684,36 +3759,36 @@ PhotoMosaic.Inputs = (function ($){
         },
 
         errorChecks : {
-            initial : function (opts) {
-                if (this.heightRowMismatch(opts)) {
+            initial : function (_options, opts) {
+                if (this.heightRowMismatch(_options, opts)) {
                     PhotoMosaic.Utils.log.info("Rows must be set to 'auto' to set a fixed Height");
                     opts.rows = 'auto';
                 }
-                if (this.heightOrphanMismatch(opts)) {
+                if (this.heightOrphanMismatch(_options, opts)) {
                     PhotoMosaic.Utils.log.info("Allow Orphans must be 'true' to set a fixed Height");
                     opts.allow_orphans = true;
                 }
-                if (this.heightCropMismatch(opts)) {
+                if (this.heightCropMismatch(_options, opts)) {
                     PhotoMosaic.Utils.log.info("Prevent Cropping must be 'false' to set a fixed Height");
                     opts.prevent_crop = false;
                 }
                 return opts;
             },
-            heightRowMismatch : function (opts) {
+            heightRowMismatch : function (_options, opts) {
                 return (
-                    (opts.height !== 'auto' && opts.height !== 0)
+                    (_options.height !== 'auto' && _options.height !== 0)
                     && (opts.rows !== 'auto' && opts.rows !== 0)
                 );
             },
-            heightOrphanMismatch : function (opts) {
+            heightOrphanMismatch : function (_options, opts) {
                 return (
-                    (opts.height !== 'auto' && opts.height !== 0)
+                    (_options.height !== 'auto' && _options.height !== 0)
                     && !opts.allow_orphans
                 );
             },
-            heightCropMismatch : function (opts) {
+            heightCropMismatch : function (_options, opts) {
                 return (
-                    (opts.height !== 'auto' && opts.height !== 0)
+                    (_options.height !== 'auto' && _options.height !== 0)
                     && opts.prevent_crop
                 );
             },
@@ -3739,9 +3814,7 @@ PhotoMosaic.Inputs = (function ($){
             var column_width = null;
             var mosaic_height = 0;
 
-            if (this._options.width === 'auto' || this._options.width == 0) {
-                this.opts.width = this.node.width();
-            }
+            this.opts.width = PhotoMosaic.Layouts.Common.getRelativeWidth( this._options, this.opts, this.node );
 
             // look for conflicting settings
             this.opts = this.errorChecks.initial( this.opts );
@@ -3826,9 +3899,14 @@ PhotoMosaic.Inputs = (function ($){
             if (height == 'auto' || height == 0) {
                 return columns;
             } else {
+                if ( (typeof(height) == 'string') && (height.indexOf('%') > -1) ) {
+                    height = (this.node.height() * (parseInt(height, 10) / 100));
+                }
+
                 for (var i = 0; i < columns.length; i++) {
                     columns[i] = this.scaleColumnToHeight(columns[i], height);
-                };
+                }
+
                 return columns;
             }
         },
@@ -3992,10 +4070,17 @@ PhotoMosaic.Inputs = (function ($){
         return 'photoMosaic_' + id;
     }
 
+    function vendorPrefix(str) {
+        var prop = PhotoMosaic.Plugins.Modernizr.prefixed(str);
+        return prop.replace(/([A-Z])/g, function(str,m1){
+                return '-' + m1.toLowerCase();
+            }).replace(/^ms-/,'-ms-');
+    }
+
     PhotoMosaic.Layouts.React = {
         mosaic : React.createClass({
             componentDidMount : function () {
-                $(this.getDOMNode()).addClass('loading');
+                $(this.getDOMNode()).addClass('photomosaic-loading');
             },
             render : function () {
                 var id = prefixId(this.props.id);
@@ -4006,7 +4091,7 @@ PhotoMosaic.Inputs = (function ($){
                 };
                 var images = this.props.images.map(function (image) {
                     return (
-                        PhotoMosaic.Layouts.React.image_wrapper(image)
+                        PhotoMosaic.Layouts.React.item(image)
                     );
                 });
 
@@ -4026,9 +4111,9 @@ PhotoMosaic.Inputs = (function ($){
             }
         }),
 
-        image_wrapper : React.createClass({
+        item : React.createClass({
             componentDidMount : function () {
-                $(this.getDOMNode()).addClass('loading');
+                $(this.getDOMNode()).addClass('photomosaic-loading');
             },
             render : function () {
                 var data = this.props;
@@ -4037,17 +4122,16 @@ PhotoMosaic.Inputs = (function ($){
                     className : 'photomosaic-item',
                     key : data.id,
                     style : {
-                        position : 'absolute',
-                        top : data.position.top,
-                        left : data.position.left,
                         width : data.width.container,
                         height : data.height.container
                     },
                     children : [
                         PhotoMosaic.Layouts.React.spinner( $.extend({}, data, {key : data.id + '_spinner'}) ),
-                        PhotoMosaic.Layouts.React.image(data)
+                        PhotoMosaic.Layouts.React.animation_wrapper(data)
                     ]
                 };
+
+                params.style[vendorPrefix('transform')] = 'translate(' + data.position.left + 'px, ' + data.position.top + 'px)';
 
                 if (data.link) {
                     if (data.external) { params.target = '_blank'; }
@@ -4062,17 +4146,39 @@ PhotoMosaic.Inputs = (function ($){
             }
         }),
 
+        animation_wrapper : React.createClass({
+            render : function () {
+                var data = this.props;
+                var params = {
+                    className : 'photomosaic-animation-wrap',
+                    children : [
+                        PhotoMosaic.Layouts.React.image(data)
+                    ]
+                };
+
+                return (
+                    React.DOM.div(params)
+                );
+            }
+        }),
+
         image : React.createClass({
+            componentDidUpdate : function (prev_props, prev_state) {
+                var $image = $(this.getDOMNode());
+                var next_src = $image.attr('data-src');
+
+                if (prev_props.src && (prev_props.src != next_src)) {
+                    $image.attr('src', next_src);
+                }
+            },
             render : function () {
                 var data = this.props;
                 var style = {
                     width : data.width.adjusted,
-                    height : data.height.adjusted,
+                    height : data.height.adjusted
                 };
 
-                for (var key in data.adjustments) {
-                    style[key] = data.adjustments[key] * -1;
-                }
+                style[vendorPrefix('transform')] = 'translate(' + (data.adjustments.left * -1) + 'px, ' + (data.adjustments.top * -1) + 'px)';
 
                 return (
                     React.DOM.img({
@@ -4094,14 +4200,17 @@ PhotoMosaic.Inputs = (function ($){
                     height : data.height.adjusted,
                 };
 
-                for (var key in data.adjustments) {
-                    style[key] = data.adjustments[key] * -1;
-                }
+                style[vendorPrefix('transform')] = 'translate(' + (data.adjustments.left * -1) + 'px, ' + (data.adjustments.top * -1) + 'px)';
 
                 return (
-                    React.DOM.span({
-                        className : 'photomosaic-spinner',
-                        style : style
+                    React.DOM.div({
+                        className : 'photomosaic-spinner-wrap',
+                        children : [
+                            React.DOM.span({
+                                className : 'photomosaic-spinner',
+                                style : style
+                            })
+                        ]
                     })
                 );
             }
@@ -4124,7 +4233,7 @@ PhotoMosaic.Inputs = (function ($){
     };
 
 }(window.JQPM));
-(function ($) {
+(function ($, window) {
     'use strict';
 
     var pluginName = 'photoMosaic';
@@ -4137,7 +4246,7 @@ PhotoMosaic.Inputs = (function ($){
         this.obj = $(el);
         this._options = options;
 
-        this._id = PhotoMosaic.Utils.makeID(true);
+        this._id = options.id || PhotoMosaic.Utils.makeID(true);
 
         this._transition_end_event_name = (function () {
             var event_names = {
@@ -4149,6 +4258,17 @@ PhotoMosaic.Inputs = (function ($){
             };
             return event_names[ PhotoMosaic.Plugins.Modernizr.prefixed( 'transition' ) ];
         })();
+
+        // for onReady Callback / modal_ready_callback
+        $.data(this.el, pluginName, this);
+
+        // for debugging
+        window.PhotoMosaic.Mosaics.push({
+            'el' : this.el,
+            '$el' : this.obj,
+            'opts' : this._options,
+            'instance' : this
+        });
 
         this.init();
     };
@@ -4215,6 +4335,15 @@ PhotoMosaic.Inputs = (function ($){
 
             // Error Checks
             if ( PhotoMosaic.ErrorChecks.initial(this.opts) ) {
+                return;
+            }
+
+            if ( PhotoMosaic.ErrorChecks.nonModernBrowser() ) {
+                this.obj.html( PhotoMosaic.Fallbacks[this._id] );
+
+                setTimeout(function(){
+                    self.modalCallback( self.obj.find('.gallery') );
+                }, 0);
                 return;
             }
 
@@ -4567,7 +4696,7 @@ PhotoMosaic.Inputs = (function ($){
             }
 
             // make sure numbers are numbers
-            var exclusions = ['shape', 'modal_hash'];
+            var exclusions = ['width', 'height', 'shape', 'modal_hash'];
             for (var k in props) {
                 if (($.inArray(k, exclusions) == -1) && !isNaN(parseFloat(props[k]))) {
                     props[k] = parseFloat(props[k]);
@@ -4585,8 +4714,8 @@ PhotoMosaic.Inputs = (function ($){
             this.refresh();
         },
 
-        modalCallback: function () {
-            var $node = this.obj.children().get(0);
+        modalCallback: function ($node) {
+            var $node = $node || this.obj.children().get(0);
             if ($.isFunction(this.opts.modal_ready_callback)) {
                 this.opts.modal_ready_callback.apply(this, [$node]);
             }
@@ -4630,18 +4759,9 @@ PhotoMosaic.Inputs = (function ($){
                 instance.refresh();
             } else {
                 options = options || {};
-                instance = $.data(this, pluginName, new photoMosaic(this, options));
-
-                // for debugging
-                window.PhotoMosaic.$ = $;
-                window.PhotoMosaic.Mosaics.push({
-                    'el' : this,
-                    '$el' : $(this),
-                    'opts' : instance.opts,
-                    'instance' : instance
-                });
+                instance = new photoMosaic(this, options);
             }
         });
     };
 
-}(window.JQPM));
+}(window.JQPM, window));
