@@ -11,7 +11,7 @@ class Photomosaic {
 
     public function __construct () {
         $this->plugin_name = 'photomosaic';
-        $this->version = '2.12.2';
+        $this->version = '2.12.3';
 
         $this->load_dependencies();
         // $this->set_locale();
@@ -210,6 +210,10 @@ class Photomosaic {
         }
 
         return $wp_scripts->add_data( $handle, 'data', $script );
+    }
+
+    public function shortcode ( $atts = array() ) {
+        return $this->plugin_public->shortcode( $atts );
     }
 
     public function get_plugin_name () {

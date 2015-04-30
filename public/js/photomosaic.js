@@ -11,7 +11,7 @@
         }
     }
 
-    // verbatim from jQuery Migrate 1.2.1
+    // verbatim from jQuery Migrate (as of 10/13 never received an official release)
     jQuery.sub = function() {
         function jQuerySub( selector, context ) {
             return new jQuerySub.fn.init( selector, context );
@@ -22,11 +22,10 @@
         jQuerySub.fn.constructor = jQuerySub;
         jQuerySub.sub = this.sub;
         jQuerySub.fn.init = function init( selector, context ) {
-            if ( context && context instanceof jQuery && !(context instanceof jQuerySub) ) {
-                context = jQuerySub( context );
-            }
-
-            return jQuery.fn.init.call( this, selector, context, rootjQuerySub );
+            var instance = jQuery.fn.init.call( this, selector, context, rootjQuerySub );
+            return instance instanceof jQuerySub ?
+                instance :
+                jQuerySub( instance );
         };
         jQuerySub.fn.init.prototype = jQuerySub.fn;
         var rootjQuerySub = jQuerySub(document);
@@ -38,7 +37,7 @@
     registerNamespace('JQPM', $sub || {});
     registerNamespace('PhotoMosaic');
     registerNamespace('PhotoMosaic.$', $sub || {});
-    registerNamespace('PhotoMosaic.version', '2.12.2');
+    registerNamespace('PhotoMosaic.version', '2.12.3');
     registerNamespace('PhotoMosaic.Utils');
     registerNamespace('PhotoMosaic.Inputs');
     registerNamespace('PhotoMosaic.Loader');
@@ -3005,7 +3004,7 @@ PhotoMosaic.Inputs = (function ($){
                 images = this.randomizeImages( images );
             }
 
-            columns = this.sortIntoRows( images, columns );
+            columns = this.sortIntoMasonry( images, columns );
 
             return columns;
         },
@@ -3147,12 +3146,11 @@ PhotoMosaic.Inputs = (function ($){
         this._options.gallery = mosaic.opts.gallery.slice(); // we want to be able to refer to the original gallery order
         this.images = mosaic.opts.gallery;
         this.imagesById = PhotoMosaic.Utils.arrayToObj( this.images, 'id' );
-        this.isRefreshing = false;
         return this;
     };
 
     PhotoMosaic.Layouts.columns.prototype = {
-        getData : function () {
+        getData : function (isRefreshing) {
             var images = this.images;
             var columns = null;
             var column_width = null;
@@ -3170,7 +3168,7 @@ PhotoMosaic.Inputs = (function ($){
             images = this.scaleToWidth( images, column_width );
 
             // sort the images (based on opts.order) and assign them to columns
-            columns = PhotoMosaic.Layouts.Common.dealIntoColumns( images, columns, this.opts, this.isRefreshing );
+            columns = PhotoMosaic.Layouts.Common.dealIntoColumns( images, columns, this.opts, isRefreshing );
 
             // determine the target height for the entire mosaic
             mosaic_height = this.getMosaicHeight( columns );
@@ -3196,8 +3194,6 @@ PhotoMosaic.Inputs = (function ($){
             PhotoMosaic.Layouts.Common.positionImagesInMosaic( this.imagesById, columns, column_width, this.opts );
 
             images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes );
-
-            this.isRefreshing = false;
 
             return {
                 width : (column_width * columns.length) + (this.opts.padding * (columns.length - 1)),
@@ -3325,8 +3321,7 @@ PhotoMosaic.Inputs = (function ($){
         },
 
         refresh : function () {
-            this.isRefreshing = true;
-            return this.getData();
+            return this.getData( true );
         },
 
         update : function (props) {
@@ -3383,11 +3378,10 @@ PhotoMosaic.Inputs = (function ($){
         this.ordered_images = $.map( this.images, function (item, i) {
             return item.id;
         } );
-        this.isRefreshing = false;
         return this;
     };
     PhotoMosaic.Layouts.rows.prototype = {
-        getData : function () {
+        getData : function (isRefreshing) {
             var images = this.images;
             var rows = null;
 
@@ -3436,8 +3430,6 @@ PhotoMosaic.Inputs = (function ($){
             this.positionImagesInMosaic( rows, this.opts.padding );
 
             images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes );
-
-            this.isRefreshing = false;
 
             return {
                 width : this.opts.width,
@@ -3727,8 +3719,7 @@ PhotoMosaic.Inputs = (function ($){
         },
 
         refresh : function () {
-            this.isRefreshing = true;
-            return this.getData();
+            return this.getData( true );
         },
 
         update : function (props) {
@@ -3797,12 +3788,11 @@ PhotoMosaic.Inputs = (function ($){
         this._options.gallery = mosaic.opts.gallery.slice(); // we want to be able to refer to the original gallery order
         this.images = mosaic.opts.gallery;
         this.imagesById = PhotoMosaic.Utils.arrayToObj( this.images, 'id' );
-        this.isRefreshing = false;
         return this;
     };
 
     PhotoMosaic.Layouts.grid.prototype = {
-        getData : function () {
+        getData : function (isRefreshing) {
             var images = this.images;
             var columns = null;
             var column_width = null;
@@ -3826,7 +3816,7 @@ PhotoMosaic.Inputs = (function ($){
             images = this.scaleToContainer(images);
 
             // sort the images (based on opts.order) and assign them to columns
-            columns = PhotoMosaic.Layouts.Common.dealIntoColumns( images, columns, this.opts, this.isRefreshing );
+            columns = PhotoMosaic.Layouts.Common.dealIntoColumns( images, columns, this.opts, isRefreshing );
 
             // adjust for height
             columns = this.scaleColumnsToHeight(columns, this.opts.height);
@@ -3842,8 +3832,6 @@ PhotoMosaic.Inputs = (function ($){
             PhotoMosaic.Layouts.Common.positionImagesInMosaic( this.imagesById, columns, column_width, this.opts );
 
             images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes );
-
-            this.isRefreshing = false;
 
             return {
                 width : (column_width * columns.length) + (this.opts.padding * (columns.length - 1)),
@@ -4004,8 +3992,7 @@ PhotoMosaic.Inputs = (function ($){
         },
 
         refresh : function () {
-            this.isRefreshing = true;
-            return this.getData();
+            return this.getData( true );
         },
 
         update : function (props) {
@@ -4396,7 +4383,7 @@ PhotoMosaic.Inputs = (function ($){
             if ( PhotoMosaic.ErrorChecks.initial(this.opts) ) { return; }
 
             this.layout = new PhotoMosaic.Layouts[ this.opts.layout ]( this );
-            layout_data = this.layout.getData();
+            layout_data = this.layout.getData( false );
 
             view_model = $.extend({}, mosaic_data, layout_data);
 
@@ -4681,7 +4668,7 @@ PhotoMosaic.Inputs = (function ($){
                 center : this.opts.center
             };
 
-            var layout_data = this.layout.getData();
+            var layout_data = this.layout.getData( true );
 
             var view_model = $.extend({}, mosaic_data, layout_data);
 
