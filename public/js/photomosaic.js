@@ -37,7 +37,7 @@
     registerNamespace('JQPM', $sub || {});
     registerNamespace('PhotoMosaic');
     registerNamespace('PhotoMosaic.$', $sub || {});
-    registerNamespace('PhotoMosaic.version', '2.12.3');
+    registerNamespace('PhotoMosaic.version', '2.12.4');
     registerNamespace('PhotoMosaic.Utils');
     registerNamespace('PhotoMosaic.Inputs');
     registerNamespace('PhotoMosaic.Loader');
@@ -1458,7 +1458,7 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
 
 }).call(this);
 /*
-    Version: 3.1.5f
+    Version: 3.1.6f
     Modified by Mike Kafka (http://codecanyon.net/user/makfak) to serve my own purposes
     # b
      - new jQuery namespace (JQPM)
@@ -1480,10 +1480,10 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
     Class: prettyPhoto
     Use: Lightbox clone for jQuery
     Author: Stephane Caron (http://www.no-margin-for-errors.com)
-    Version: 3.1.5
+    Version: 3.1.6
 ------------------------------------------------------------------------- */
 (function($) {
-    $.prettyPhoto = {version: '3.1.5'};
+    $.prettyPhoto = {version: '3.1.6'};
     
     $.fn.prettyPhoto = function(pp_settings) {
         pp_settings = $.extend({
@@ -2373,7 +2373,9 @@ https://github.com/imakewebthings/jquery-waypoints/blob/master/licenses.txt
     function getHashtag(){
         var url = location.href;
         hashtag = (url.indexOf('#prettyPhoto') !== -1) ? decodeURI(url.substring(url.indexOf('#prettyPhoto')+1,url.length)) : false;
-
+        if (hashtag) {
+            hashtag = hashtag.replace(/<|>/g,'');
+        }
         return hashtag;
     };
     
@@ -2474,7 +2476,7 @@ PhotoMosaic.Utils = (function(){
             return response;
         },
 
-        pickImageSize : function (images, sizes) {
+        pickImageSize : function (images, sizes, honor_device_pixel_ratio) {
             // currently only supported in PM4WP
             if (!sizes || !images[0].sizes) { return images; }
 
@@ -2485,6 +2487,7 @@ PhotoMosaic.Utils = (function(){
                     width : 0,
                     height : 0
                 };
+                var pixel_ratio = (honor_device_pixel_ratio && window.devicePixelRatio) ? window.devicePixelRatio : 1;
 
                 for (var key in sizes) {
                     if (sizes.hasOwnProperty(key)) {
@@ -2501,7 +2504,9 @@ PhotoMosaic.Utils = (function(){
                         // if either of the image's dims are less than the container's dims - we'd be scaling up
                         // scaling up is bad
                         // keep looping until we scale the image down
-                        if (scaled.width < image.width.adjusted || scaled.height < image.height.adjusted) {
+
+                        if (scaled.width < (image.width.adjusted * pixel_ratio) ||
+                            scaled.height < (image.height.adjusted * pixel_ratio)) {
                             continue;
                         } else {
                             size = key;
@@ -3193,7 +3198,7 @@ PhotoMosaic.Inputs = (function ($){
             // TODO : stop being a side-effect
             PhotoMosaic.Layouts.Common.positionImagesInMosaic( this.imagesById, columns, column_width, this.opts );
 
-            images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes );
+            images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes, this.opts.honor_device_pixel_ratio );
 
             return {
                 width : (column_width * columns.length) + (this.opts.padding * (columns.length - 1)),
@@ -3429,7 +3434,7 @@ PhotoMosaic.Inputs = (function ($){
             // convert all this knowledge into position data
             this.positionImagesInMosaic( rows, this.opts.padding );
 
-            images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes );
+            images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes, this.opts.honor_device_pixel_ratio );
 
             return {
                 width : this.opts.width,
@@ -3831,7 +3836,7 @@ PhotoMosaic.Inputs = (function ($){
             // TODO : stop being a side-effect
             PhotoMosaic.Layouts.Common.positionImagesInMosaic( this.imagesById, columns, column_width, this.opts );
 
-            images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes );
+            images = PhotoMosaic.Utils.pickImageSize( images, this.opts.sizes, this.opts.honor_device_pixel_ratio );
 
             return {
                 width : (column_width * columns.length) + (this.opts.padding * (columns.length - 1)),
@@ -4187,7 +4192,7 @@ PhotoMosaic.Inputs = (function ($){
                     React.DOM.div({
                         className : 'photomosaic-spinner-wrap',
                         children : [
-                            React.DOM.span({
+                            React.DOM.div({
                                 className : 'photomosaic-spinner',
                                 style : style
                             })
@@ -4280,6 +4285,7 @@ PhotoMosaic.Inputs = (function ($){
             modal_ready_callback : null,
             lazyload : 0, // int || false
             lightbox_rendition : 'full',
+            honor_device_pixel_ratio : true,
 
             layout : 'columns', // rows, columns, grid
 

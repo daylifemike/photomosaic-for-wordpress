@@ -7,6 +7,8 @@ class Photomosaic_Public {
     protected $oldest_supported_wp = '3.5';
     protected $url_pattern = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
     protected $lightbox = null;
+    protected $transient_key = "pm_";
+    protected $transient_expiry = 3600; // 1 hour (in seconds) = 60*60*1
 
     public function __construct ( $plugin_name, $version ) {
         $this->plugin_name = $plugin_name;
@@ -61,9 +63,11 @@ class Photomosaic_Public {
             'exclude'   => '',
             'ids'       => ''
         );
+
         $options = $photomosaic->get_options();
         $options = wp_parse_args($base, $options);
         $settings = wp_parse_args($atts, $options);
+        $this->transient_key = 'pm_' . hash( 'md4', json_encode( $settings ) );
 
         if ( empty($atts['limit']) ) {
             $atts['limit'] = null;
@@ -205,12 +209,12 @@ class Photomosaic_Public {
 
         $settings['sizes'] = $this->get_size_object( $settings );
 
-        $settings['modal_hash'] = hash( 'adler32', json_encode( $atts ) );
+        $settings['modal_hash'] = hash( 'crc32', json_encode( $atts ) );
 
         $settings['id'] = $id;
 
         // before we trim the settings
-        $this->localize_lightbox( $settings, $id );
+        $this->localize_lightbox( $settings, $atts, $id );
 
         $settings = wp_array_slice_assoc( $settings, array(
             'center', 'columns', 'custom_lightbox', 'external_links', 'height', 'id',
@@ -239,13 +243,20 @@ class Photomosaic_Public {
         return $settings;
     }
 
-    public function localize_lightbox ( $settings, $id ) {
+    public function localize_lightbox ( $settings, $atts, $id ) {
         $is_default = !empty( $settings['lightbox'] );
         $is_custom  = !empty( $settings['custom_lightbox'] );
         $is_jetpack = class_exists( 'Jetpack_Carousel' );
         $has_bridge = !empty( $this->lightbox );
+        $should_lightbox = (
+            ( empty($atts['category']) && ($settings['link_behavior'] == 'image') ) ||
+            ( !empty($atts['category']) && !empty($atts['link_behavior']) && $atts['link_behavior'] == 'image' )
+        );
 
-        if ( $has_bridge ) {
+        if ( !$should_lightbox ) {
+            $function = false;
+
+        } elseif ( $has_bridge ) {
             $function = 'function ($, $mosaic, $items) {
                 PhotoMosaic.LightboxBridge.' . $this->lightbox . '.apply(this, [$, $mosaic, $items])
             }';
@@ -358,6 +369,14 @@ class Photomosaic_Public {
     public function gallery_from_wordpress ( $id, $link_behavior, $include, $exclude, $ids, $return_img_obj = false ) {
         global $wp_version;
 
+        $transient_suffix = ( $return_img_obj ? '_a' : '_b' );
+        $transient_key = $this->transient_key . $transient_suffix;
+        $transient = get_transient( $transient_key );
+
+        if ( $transient !== false ) {
+            return $transient;
+        }
+
         $gallery = array();
         $common_params = array(
             'post_status' => 'inherit',
@@ -412,6 +431,7 @@ class Photomosaic_Public {
         }
 
         if ( $return_img_obj ) {
+            set_transient( $transient_key, $attachments, $this->transient_expiry );
             return $attachments;
         }
 
@@ -485,11 +505,19 @@ class Photomosaic_Public {
             }
         }
 
+        set_transient( $transient_key, $gallery, $this->transient_expiry );
         return $gallery;
     }
 
     public function gallery_from_nextgen ( $id, $link_behavior, $type ) {
         global $wpdb, $post;
+
+        $transient_key = $this->transient_key . '_c';
+        $transient = get_transient( $transient_key );
+
+        if ( $transient !== false ) {
+            return $transient;
+        }
 
         $gallery = array();
         $pattern = $this->url_pattern;
@@ -550,12 +578,21 @@ class Photomosaic_Public {
 
             $gallery[] = $image;
         }
+
+        set_transient( $transient_key, $gallery, $this->transient_expiry );
         return $gallery;
     }
 
     public function recent_posts_images ( $limit = null, $category = null ) {
         if ( empty($limit) ) {
             $limit = 10;
+        }
+
+        $transient_key = $this->transient_key . '_d';
+        $transient = get_transient( $transient_key );
+
+        if ( $transient !== false ) {
+            return $transient;
         }
 
         $response = array();
@@ -603,6 +640,7 @@ class Photomosaic_Public {
             }
         }
 
+        set_transient( $transient_key, $response, 60*10 ); // 10 minutes
         return $response;
     }
 
@@ -642,6 +680,13 @@ class Photomosaic_Public {
     }
 
     private function wordpress_gallery_fallback ( $attr ) {
+        $transient_key = $this->transient_key . '_e';
+        $transient = get_transient( $transient_key );
+
+        if ( $transient !== false ) {
+            return $transient;
+        }
+
         // this function is taken directly from the WP (4.1.1) core (wp-includes/media.php#gallery_shortcode)
         // the post_gallery filter has been commented-out
         if ( empty( $attr['link'] ) ) {
@@ -808,10 +853,18 @@ class Photomosaic_Public {
                 </div>\n";
         // === END gallery_shortcode === //
 
+        set_transient( $transient_key, $output, $this->transient_expiry );
         return $output;
     }
 
     private function nextgen_gallery_fallback ( $attr ) {
+        $transient_key = $this->transient_key . '_e';
+        $transient = get_transient( $transient_key );
+
+        if ( $transient !== false ) {
+            return $transient;
+        }
+
         $args = array('display_type' => 'photocrati-nextgen_basic_thumbnails');
 
         if ( !empty($attr['nggid']) ) {
@@ -826,6 +879,7 @@ class Photomosaic_Public {
 
         $output = M_Gallery_Display::display_images( $args );
 
+        set_transient( $transient_key, $output, $this->transient_expiry );
         return $output;
     }
 
@@ -834,6 +888,13 @@ class Photomosaic_Public {
     }
 
     public function fetch_taxonomy_categories ( $slug, $args ) {
+        $transient_key = $this->transient_key . '_f';
+        $transient = get_transient( $transient_key );
+
+        if ( $transient !== false ) {
+            return $transient;
+        }
+
         $slug = trim($slug);
         $taxonomies = explode(':', $slug);
         $taxonomy = (count($taxonomies) > 1 ? $taxonomies[0] : 'category');
@@ -847,10 +908,20 @@ class Photomosaic_Public {
                 )
             )
         );
-        return wp_get_recent_posts( $args + $taxonomy_args );
+        $posts = wp_get_recent_posts( $args + $taxonomy_args );
+
+        set_transient( $transient_key, $posts, $this->transient_expiry );
+        return $posts;
     }
 
     private function get_size_object ( $atts ) {
+        $transient_key = $this->transient_key . '_g';
+        $transient = get_transient( $transient_key );
+
+        if ( $transient !== false ) {
+            return $transient;
+        }
+
         // we want to ignore thumbnails if they all have the same aspect ratio
         $images = array();
         $widths = array();
@@ -939,6 +1010,7 @@ class Photomosaic_Public {
             }
         }
 
+        set_transient( $transient_key, $output, $this->transient_expiry );
         return $output;
     }
 
