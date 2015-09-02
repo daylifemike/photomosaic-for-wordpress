@@ -37,7 +37,7 @@
     registerNamespace('JQPM', $sub || {});
     registerNamespace('PhotoMosaic');
     registerNamespace('PhotoMosaic.$', $sub || {});
-    registerNamespace('PhotoMosaic.version', '2.12.4');
+    registerNamespace('PhotoMosaic.version', '2.13');
     registerNamespace('PhotoMosaic.Utils');
     registerNamespace('PhotoMosaic.Inputs');
     registerNamespace('PhotoMosaic.Loader');
@@ -3160,8 +3160,16 @@ PhotoMosaic.Inputs = (function ($){
             var columns = null;
             var column_width = null;
             var mosaic_height = 0;
+            var force_hidden = false;
 
             this.opts.width = PhotoMosaic.Layouts.Common.getRelativeWidth( this._options, this.opts, this.node );
+
+            // lazyloading requires that there be nodes to attach to (so we need a width)
+            // but we don't want to render the mosaic so we display:none it
+            if ( this.errorChecks.width(this.opts.width) ) {
+                this.opts.width = 300;
+                force_hidden = true;
+            }
 
             // determine the number of columns
             this.columns = columns = PhotoMosaic.Layouts.Common.makeColumnBuckets( this.opts );
@@ -3203,7 +3211,8 @@ PhotoMosaic.Inputs = (function ($){
             return {
                 width : (column_width * columns.length) + (this.opts.padding * (columns.length - 1)),
                 height : mosaic_height,
-                images : images
+                images : images,
+                force_hidden : force_hidden
             };
         },
 
@@ -3366,6 +3375,13 @@ PhotoMosaic.Inputs = (function ($){
                         PhotoMosaic.Utils.log.error("Your gallery has been hidden because its height is too small for your current settings and won't render correctly.");
                         return true;
                     }
+                }
+                return false;
+            },
+            width: function (width) {
+                if (width == 0) {
+                    PhotoMosaic.Utils.log.error("Your gallery's target container doesn't have a width (width = 0). Make sure it isn't hidden.");
+                    return true;
                 }
                 return false;
             }
@@ -4066,7 +4082,7 @@ PhotoMosaic.Inputs = (function ($){
     PhotoMosaic.Layouts.React = {
         mosaic : React.createClass({
             componentDidMount : function () {
-                $(this.getDOMNode()).addClass('photomosaic-loading');
+                $(React.findDOMNode(this)).addClass('photomosaic-loading');
             },
             render : function () {
                 var id = prefixId(this.props.id);
@@ -4077,29 +4093,36 @@ PhotoMosaic.Inputs = (function ($){
                 };
                 var images = this.props.images.map(function (image) {
                     return (
-                        PhotoMosaic.Layouts.React.item(image)
+                        React.createElement(PhotoMosaic.Layouts.React.item, image)
                     );
                 });
 
                 if (this.props.center) {
-                    style['margin-right'] = 'auto';
-                    style['margin-left'] = 'auto';
+                    style['marginRight'] = 'auto';
+                    style['marginLeft'] = 'auto';
+                }
+
+                if (this.props.force_hidden) {
+                    style['display'] = 'none';
                 }
 
                 return (
-                    React.DOM.div({
-                        id : id,
-                        className : class_name,
-                        style : style,
-                        children : images
-                    })
+                    React.createElement(
+                        'div',
+                        {
+                            id : id,
+                            className : class_name,
+                            style : style,
+                            children : images
+                        }
+                    )
                 );
             }
         }),
 
         item : React.createClass({
             componentDidMount : function () {
-                $(this.getDOMNode()).addClass('photomosaic-loading');
+                $(React.findDOMNode(this)).addClass('photomosaic-loading');
             },
             render : function () {
                 var data = this.props;
@@ -4112,8 +4135,14 @@ PhotoMosaic.Inputs = (function ($){
                         height : data.height.container
                     },
                     children : [
-                        PhotoMosaic.Layouts.React.spinner( $.extend({}, data, {key : data.id + '_spinner'}) ),
-                        PhotoMosaic.Layouts.React.animation_wrapper(data)
+                        React.createElement(
+                            PhotoMosaic.Layouts.React.spinner,
+                            $.extend({}, data, {key : data.id + '_spinner'})
+                        ),
+                        React.createElement(
+                            PhotoMosaic.Layouts.React.animation_wrapper,
+                            data
+                        )
                     ]
                 };
 
@@ -4127,7 +4156,7 @@ PhotoMosaic.Inputs = (function ($){
                 }
 
                 return (
-                    React.DOM[node_type](params)
+                    React.createElement(node_type, params)
                 );
             }
         }),
@@ -4138,19 +4167,19 @@ PhotoMosaic.Inputs = (function ($){
                 var params = {
                     className : 'photomosaic-animation-wrap',
                     children : [
-                        PhotoMosaic.Layouts.React.image(data)
+                        React.createElement(PhotoMosaic.Layouts.React.image, data)
                     ]
                 };
 
                 return (
-                    React.DOM.div(params)
+                    React.createElement('div', params)
                 );
             }
         }),
 
         image : React.createClass({
             componentDidUpdate : function (prev_props, prev_state) {
-                var $image = $(this.getDOMNode());
+                var $image = $(React.findDOMNode(this));
                 var next_src = $image.attr('data-src');
 
                 if (prev_props.src && (prev_props.src != next_src)) {
@@ -4167,13 +4196,16 @@ PhotoMosaic.Inputs = (function ($){
                 style[vendorPrefix('transform')] = 'translate(' + (data.adjustments.left * -1) + 'px, ' + (data.adjustments.top * -1) + 'px)';
 
                 return (
-                    React.DOM.img({
-                        id : data.id,
-                        'data-src' : data.src,
-                        title : data.caption,
-                        alt : data.alt,
-                        style : style
-                    })
+                    React.createElement(
+                        'IMG', // uppercase because of a MooTools v1.4.5 conflict
+                        {
+                            id : data.id,
+                            'data-src' : data.src,
+                            title : data.caption,
+                            alt : data.alt,
+                            style : style
+                        }
+                    )
                 );
             }
         }),
@@ -4189,15 +4221,21 @@ PhotoMosaic.Inputs = (function ($){
                 style[vendorPrefix('transform')] = 'translate(' + (data.adjustments.left * -1) + 'px, ' + (data.adjustments.top * -1) + 'px)';
 
                 return (
-                    React.DOM.div({
-                        className : 'photomosaic-spinner-wrap',
-                        children : [
-                            React.DOM.div({
-                                className : 'photomosaic-spinner',
-                                style : style
-                            })
-                        ]
-                    })
+                    React.createElement(
+                        'div',
+                        {
+                            className : 'photomosaic-spinner-wrap',
+                            children : [
+                                React.createElement(
+                                    'div',
+                                    {
+                                        className : 'photomosaic-spinner',
+                                        style : style
+                                    }
+                                )
+                            ]
+                        }
+                    )
                 );
             }
         }),
@@ -4205,14 +4243,20 @@ PhotoMosaic.Inputs = (function ($){
         loading : React.createClass({
             render : function () {
                 return (
-                    React.DOM.div({
-                        id : prefixId(this.props.id),
-                        className : 'photoMosaic',
-                        children : React.DOM.div({
-                            className : 'photoMosaicLoading',
-                            children : 'loading gallery...'
-                        })
-                    })
+                    React.createElement(
+                        'div',
+                        {
+                            id : prefixId(this.props.id),
+                            className : 'photoMosaic',
+                            children : React.createElement(
+                                'div',
+                                {
+                                    className : 'photoMosaicLoading',
+                                    children : 'loading gallery...'
+                                }
+                            )
+                        }
+                    )
                 );
             }
         })
@@ -4355,8 +4399,11 @@ PhotoMosaic.Inputs = (function ($){
             var self = this;
 
             if (this.opts.show_loading) {
-                this.react = React.renderComponent(
-                    PhotoMosaic.Layouts.React.loading({ id : this._id }),
+                this.react = React.render(
+                    React.createElement(
+                        PhotoMosaic.Layouts.React.loading,
+                        { id : this._id }
+                    ),
                     this.obj.get(0)
                 );
             }
@@ -4380,6 +4427,7 @@ PhotoMosaic.Inputs = (function ($){
             var layout_data = null;
             var view_model = null;
             var mosaic_data = {
+                key : this._id,
                 id : this._id,
                 class_name : this.makeSpecialClasses(),
                 center : this.opts.center
@@ -4393,8 +4441,23 @@ PhotoMosaic.Inputs = (function ($){
 
             view_model = $.extend({}, mosaic_data, layout_data);
 
+            if (layout_data == false) {
+                this.react = null;
+
+                // update the mosaic on window.resize
+                $(window)
+                    .unbind('resize.photoMosaic' + self._id)
+                    .bind('resize.photoMosaic' + self._id, function () {
+                        self.refresh();
+                    });
+                return;
+            }
+
             this.react = React.render(
-                PhotoMosaic.Layouts.React.mosaic(view_model), // the component to render
+                React.createElement(
+                    PhotoMosaic.Layouts.React.mosaic,
+                    view_model
+                ), // the component to render
                 this.obj.get(0), // the dom node container
                 function () {  // the callback
                     // triggers lazyloading / imagesLoaded
@@ -4669,6 +4732,7 @@ PhotoMosaic.Inputs = (function ($){
         refresh: function () {
             var self = this;
             var mosaic_data = {
+                key : this._id,
                 id : this._id,
                 class_name : this.makeSpecialClasses(),
                 center : this.opts.center
@@ -4683,8 +4747,16 @@ PhotoMosaic.Inputs = (function ($){
                 $.waypoints('refresh');
             }, 300);
 
+            if (layout_data == false) {
+                this.react = null;
+                return;
+            }
+
             this.react = React.render(
-                PhotoMosaic.Layouts.React.mosaic(view_model),
+                React.createElement(
+                    PhotoMosaic.Layouts.React.mosaic,
+                    view_model
+                ),
                 this.obj.get(0),
                 function () {
                     // if applicable, wait until after the CSS transitions fire to trigger a lazyloading check

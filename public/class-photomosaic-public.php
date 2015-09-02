@@ -30,11 +30,11 @@ class Photomosaic_Public {
     public function enqueue_scripts () {
         global $photomosaic;
 
-        wp_register_script( 'react', '//cdnjs.cloudflare.com/ajax/libs/react/0.12.2/react.min.js', null, '0.12.2', true );
-
         if ( $this->in_debug_mode() ) {
+            wp_register_script( 'react', '//fb.me/react-0.13.3.js', null, '0.13.3', true );
             wp_register_script( $this->plugin_name, $this->relative_url('js/photomosaic.js') , array('jquery','react'), $this->version, true );
         } else {
+            wp_register_script( 'react', '//fb.me/react-0.13.3.min.js', null, '0.13.3', true );
             wp_register_script( $this->plugin_name, $this->relative_url('js/photomosaic.min.js'), array('jquery','react'), $this->version, true );
         }
 
@@ -85,9 +85,9 @@ class Photomosaic_Public {
         $target = 'photoMosaicTarget' . $unique;
 
         $this->localize_placeholder( $target, $unique );
+        $fallback = $this->localize_fallback( $settings, $unique );
         $gallery = $this->localize_gallery_data( $settings, $atts, $unique );
         $settings = $this->localize_settings( $settings, $atts, $unique );
-        $fallback = $this->localize_fallback( $settings, $unique );
 
         $output_buffer = '';
         $gallery_div = '<div id="'. $target .'" class="photoMosaicTarget" data-version="'. $this->version .'">';
@@ -248,9 +248,10 @@ class Photomosaic_Public {
         $is_custom  = !empty( $settings['custom_lightbox'] );
         $is_jetpack = class_exists( 'Jetpack_Carousel' );
         $has_bridge = !empty( $this->lightbox );
+        $valid_link_behavior = (($settings['link_behavior'] == 'image') || ($settings['link_behavior'] == 'custom'));
         $should_lightbox = (
-            ( empty($atts['category']) && ($settings['link_behavior'] == 'image') ) ||
-            ( !empty($atts['category']) && !empty($atts['link_behavior']) && $atts['link_behavior'] == 'image' )
+            ( empty($atts['category']) && $valid_link_behavior ) ||
+            ( !empty($atts['category']) && !empty($atts['link_behavior']) && $valid_link_behavior )
         );
 
         if ( !$should_lightbox ) {
@@ -292,14 +293,17 @@ class Photomosaic_Public {
         } elseif ( $is_default ) {
             $function = 'function ($, $mosaic, $items) {
                 var $fallback_items = $mosaic.find(".gallery-item a");
-                $items.add( $fallback_items ).prettyPhoto({
-                    overlay_gallery: false,
-                    slideshow: false,
-                    theme: "pp_default",
-                    deeplinking: false,
-                    show_title: false,
-                    social_tools: ""
-                });
+                $items
+                    .add( $fallback_items )
+                    .filter("a[href*=\".jpg\"], a[href*=\"jpeg\"], a[href*=\".png\"], a[href*=\".gif\"]")
+                    .prettyPhoto({
+                        overlay_gallery: false,
+                        slideshow: false,
+                        theme: "pp_default",
+                        deeplinking: false,
+                        show_title: false,
+                        social_tools: ""
+                    });
             }';
 
         } else {
@@ -878,6 +882,10 @@ class Photomosaic_Public {
         }
 
         $output = M_Gallery_Display::display_images( $args );
+
+        // NEXTGEN deprecation notice?
+        // $renderer = C_Displayed_Gallery_Renderer::get_instance();
+        // $output = $renderer->display_images( $args );
 
         set_transient( $transient_key, $output, $this->transient_expiry );
         return $output;
