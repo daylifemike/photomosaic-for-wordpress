@@ -37,7 +37,7 @@
     registerNamespace('JQPM', $sub || {});
     registerNamespace('PhotoMosaic');
     registerNamespace('PhotoMosaic.$', $sub || {});
-    registerNamespace('PhotoMosaic.version', '2.14.1');
+    registerNamespace('PhotoMosaic.version', '2.15.1');
     registerNamespace('PhotoMosaic.Utils');
     registerNamespace('PhotoMosaic.Inputs');
     registerNamespace('PhotoMosaic.Loader');
@@ -62,6 +62,20 @@
                 },
                 i
             ]);
+        });
+    });
+    registerNamespace('PhotoMosaic.refreshPage', function () {
+        // calls instance.refresh() on existing mosaics
+        // inits any uninitialized mosaics
+        var $ = PhotoMosaic.$;
+        $.each(PhotoMosaic.WP, function (id, config) {
+            var $el = $('#' + config.target);
+            var instance = $el.data('photoMosaic')
+            var params = (instance) ? null : $.extend(true, {}, config.settings, {
+                    gallery : config.gallery
+                });
+
+            $el.photoMosaic( params );
         });
     });
 }(jQuery, window));
@@ -4372,8 +4386,11 @@ PhotoMosaic.Inputs = (function ($){
             }
 
             if ( PhotoMosaic.ErrorChecks.nonModernBrowser() ) {
-                if ( this.opts.fallback ) {
-                    this.obj.html( this.opts.fallback );
+                var fallback_node = this.el.childNodes[0];
+                var fallback = fallback_node ? fallback_node.textContent : null;
+
+                if ( fallback ) {
+                    this.obj.html( fallback );
 
                     setTimeout(function(){
                         self.modalCallback( self.obj.find('.gallery') );
@@ -4858,13 +4875,7 @@ PhotoMosaic.Inputs = (function ($){
     };
 
     $(document).on('ready', function () {
-        $.each(PhotoMosaic.WP, function (id, config) {
-            var params = $.extend(true, {}, config.settings, {
-                    gallery : config.gallery,
-                    fallback : config.fallback
-                });
-            $('#' + config.target).photoMosaic( params );
-        });
+        PhotoMosaic.refreshPage();
     });
 
 }(window.JQPM, window));

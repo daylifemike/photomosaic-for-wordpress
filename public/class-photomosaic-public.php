@@ -7,8 +7,8 @@ class Photomosaic_Public {
     protected $oldest_supported_wp = '3.5';
     protected $url_pattern = "(?i)\b((?:[a-z][\w-]+:(?:\/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))";
     protected $lightbox = null;
-    protected $transient_key = "pm_";
-    protected $transient_expiry = 3600; // 1 hour (in seconds) = 60*60*1
+    // protected $transient_key = "pm_";
+    // protected $transient_expiry = 3600; // 1 hour (in seconds) = 60*60*1
 
     public function __construct ( $plugin_name, $version ) {
         $this->plugin_name = $plugin_name;
@@ -22,7 +22,7 @@ class Photomosaic_Public {
 
         wp_add_inline_style( $this->plugin_name, $photomosaic->get_option('custom_css') );
 
-        if ( !is_admin() && $photomosaic->get_option('lightbox')) {
+        if ( !is_admin() ) {
             wp_enqueue_style( $this->plugin_name . '-lightbox', $this->relative_url('vendor/prettyphoto/prettyphoto.css'), array(), $this->version, 'all' );
         }
     }
@@ -38,7 +38,9 @@ class Photomosaic_Public {
             wp_register_script( $this->plugin_name, $this->relative_url('js/photomosaic.min.js'), array('jquery','react'), $this->version, true );
         }
 
+        // used by the lightbox bridges
         wp_enqueue_script( $this->plugin_name . '-localize', $this->relative_url('js/localize.js'), array( $this->plugin_name ), $this->version, true );
+
         wp_enqueue_script( $this->plugin_name );
 
         if ( !is_admin() && $photomosaic->get_option('lightbox')) {
@@ -67,7 +69,8 @@ class Photomosaic_Public {
         $options = $photomosaic->get_options();
         $options = wp_parse_args($base, $options);
         $settings = wp_parse_args($atts, $options);
-        $this->transient_key = 'pm_' . hash( 'md4', json_encode( $settings ) );
+
+        // $this->transient_key = 'pm_' . hash( 'md4', json_encode( $settings ) );
 
         if ( empty($atts['limit']) ) {
             $atts['limit'] = null;
@@ -84,12 +87,34 @@ class Photomosaic_Public {
 
         $target = 'photoMosaicTarget' . $unique;
 
-        $this->localize_placeholder( $target, $unique );
-        $fallback = $this->localize_fallback( $settings, $unique );
-        $gallery = $this->localize_gallery_data( $settings, $atts, $unique );
-        $settings = $this->localize_settings( $settings, $atts, $unique );
+        $gallery = $this->make_gallery_data( $settings, $atts, $unique );
+        $settings = $this->make_gallery_settings( $settings, $atts, $unique );
+        $lightbox = $this->make_lightbox_func( $settings, $atts, $unique );
 
-        $output_buffer = '';
+        $onready_callback = $settings['onready_callback'];
+
+        // $this->make_lightbox_func needs to be called before the settings are trimmed
+        $settings = wp_array_slice_assoc( $settings, array(
+            'center', 'columns', 'custom_lightbox', 'external_links', 'height', 'id',
+            'lazyload', 'lightbox', 'lightbox_rendition', 'link_behavior', 'links', 'loading_transition',
+            'max_columns', 'min_columns', 'min_column_width', 'modal_group', 'modal_hash',
+            'modal_name', 'modal_ready_callback', /* 'onready_callback', */ 'order', 'padding',
+            'prevent_crop', 'resize_transition', 'show_loading', 'sizes', 'width',
+            // these need to be typed
+            'align', 'allow_orphans', 'layout', 'max_row_height', 'orphans', 'rows', 'shape', 'sizing'
+        ) );
+
+        $output_buffer = '
+            <div class="photomosaic-container">
+                <script type="text/javascript">
+                    if (!window.PhotoMosaic) { window.PhotoMosaic = { WP : {} } }
+                    PhotoMosaic.WP["'. $unique . '"] = ' . json_encode( array( 'target' => $target ) ) . ';
+                    PhotoMosaic.WP["'. $unique . '"].gallery = ' . json_encode( $gallery ) . ';
+                    PhotoMosaic.WP["'. $unique . '"].settings = ' . json_encode( $settings ) . ';
+                    PhotoMosaic.WP["'. $unique . '"].settings.modal_ready_callback = ' . ( $onready_callback ? $onready_callback : 'false') .';
+                    PhotoMosaic.WP["'. $unique . '"].lightbox_callback = ' . ( $lightbox ? $lightbox : 'false' ) .';
+                </script>
+        ';
         $gallery_div = '<div id="'. $target .'" class="photoMosaicTarget" data-version="'. $this->version .'">';
 
         // Jetpack :: Carousel hack - it needs an HTML string to append it's data
@@ -100,26 +125,13 @@ class Photomosaic_Public {
             $output_buffer .= $gallery_div;
         }
 
-        $output_buffer .= "<noscript>" . $fallback . "</noscript>";
-        $output_buffer .='</div>';
+        $output_buffer .= "<noscript>" . $this->make_fallback( $settings ) . "</noscript>";
+        $output_buffer .='</div></div>';
 
         return preg_replace('/\s+/', ' ', $output_buffer);
     }
 
-    public function localize_placeholder ( $target, $id ) {
-        $this->localize(
-            $this->plugin_name . '-localize',
-            'PhotoMosaic.WP["'. $id . '"]',
-            array(
-                'target' => $target,
-                'gallery' => false,
-                'settings' => false,
-                'lightbox_callback' => false
-            )
-        );
-    }
-
-    public function localize_settings ( $settings, $atts, $id ) {
+    public function make_gallery_settings ( $settings, $atts, $id ) {
         // backwards compatibility
         // 'links' & 'link_to_url' might exist on the shortcode
         // convert them to 'link_behavior'
@@ -213,37 +225,15 @@ class Photomosaic_Public {
 
         $settings['id'] = $id;
 
-        // before we trim the settings
-        $this->localize_lightbox( $settings, $atts, $id );
-
-        $settings = wp_array_slice_assoc( $settings, array(
-            'center', 'columns', 'custom_lightbox', 'external_links', 'height', 'id',
-            'lazyload', 'lightbox', 'lightbox_rendition', 'link_behavior', 'links', 'loading_transition',
-            'max_columns', 'min_columns', 'min_column_width', 'modal_group', 'modal_hash',
-            'modal_name', 'modal_ready_callback', 'onready_callback', 'order', 'padding',
-            'prevent_crop', 'resize_transition', 'show_loading', 'sizes', 'width',
-            // these need to be typed
-            'align', 'allow_orphans', 'layout', 'max_row_height', 'orphans', 'rows', 'shape', 'sizing'
-        ) );
-
-        // TODO : vet all settings for type (make sure ints are ints, etc.)
-        $this->localize(
-            $this->plugin_name . '-localize',
-            'PhotoMosaic.WP["'. $id . '"].settings',
-            $settings
-        );
-
-        $this->localize(
-            $this->plugin_name . '-localize',
-            'PhotoMosaic.WP["'. $id . '"].settings.modal_ready_callback',
-            $settings['onready_callback'],
-            true
-        );
-
         return $settings;
     }
 
-    public function localize_lightbox ( $settings, $atts, $id ) {
+    public function make_lightbox_func ( $settings, $atts, $id ) {
+        // don't lightbox if the user has turned it off on the shortcode
+        if ( isset($atts['lightbox']) && empty($atts['lightbox']) ) {
+            return false;
+        }
+
         $is_default = !empty( $settings['lightbox'] );
         $is_custom  = !empty( $settings['custom_lightbox'] );
         $is_jetpack = class_exists( 'Jetpack_Carousel' );
@@ -310,19 +300,10 @@ class Photomosaic_Public {
             $function = false;
         }
 
-        if ( $function ) {
-            $this->localize(
-                $this->plugin_name . '-localize',
-                'PhotoMosaic.WP["'. $id . '"].lightbox_callback',
-                $function,
-                true
-            );
-        }
-
-        return $this->lightbox;
+        return $function;
     }
 
-    public function localize_gallery_data ( $settings, $atts, $id ) {
+    public function make_gallery_data ( $settings, $atts, $id ) {
         if ( !empty( $atts['nggid'] ) ) {
             $gallery = $this->gallery_from_nextgen( $atts['nggid'], $settings['link_behavior'], 'gallery' );
 
@@ -349,37 +330,19 @@ class Photomosaic_Public {
             $gallery = $this->gallery_from_wordpress( $settings['id'], $settings['link_behavior'], $settings['include'], $settings['exclude'], $settings['ids'] );
         }
 
-        $this->localize(
-            $this->plugin_name . '-localize',
-            'PhotoMosaic.WP["'. $id . '"].gallery',
-            $gallery
-        );
-
         return $gallery;
-    }
-
-    public function localize_fallback ( $settings, $id ) {
-        $fallback = $this->make_fallback( $settings );
-
-        $this->localize(
-            $this->plugin_name . '-localize',
-            'PhotoMosaic.WP["'. $id .'"].fallback',
-            $fallback
-        );
-
-        return $fallback;
     }
 
     public function gallery_from_wordpress ( $id, $link_behavior, $include, $exclude, $ids, $return_img_obj = false ) {
         global $wp_version;
 
-        $transient_suffix = ( $return_img_obj ? '_a' : '_b' );
-        $transient_key = $this->transient_key . $transient_suffix;
-        $transient = get_transient( $transient_key );
+        // $transient_suffix = ( $return_img_obj ? '_a' : '_b' );
+        // $transient_key = $this->transient_key . $transient_suffix;
+        // $transient = get_transient( $transient_key );
 
-        if ( $transient !== false ) {
-            return $transient;
-        }
+        // if ( $transient !== false ) {
+        //     return $transient;
+        // }
 
         $gallery = array();
         $common_params = array(
@@ -435,7 +398,7 @@ class Photomosaic_Public {
         }
 
         if ( $return_img_obj ) {
-            set_transient( $transient_key, $attachments, $this->transient_expiry );
+            // set_transient( $transient_key, $attachments, $this->transient_expiry );
             return $attachments;
         }
 
@@ -509,19 +472,19 @@ class Photomosaic_Public {
             }
         }
 
-        set_transient( $transient_key, $gallery, $this->transient_expiry );
+        // set_transient( $transient_key, $gallery, $this->transient_expiry );
         return $gallery;
     }
 
     public function gallery_from_nextgen ( $id, $link_behavior, $type ) {
         global $wpdb, $post;
 
-        $transient_key = $this->transient_key . '_c';
-        $transient = get_transient( $transient_key );
+        // $transient_key = $this->transient_key . '_c';
+        // $transient = get_transient( $transient_key );
 
-        if ( $transient !== false ) {
-            return $transient;
-        }
+        // if ( $transient !== false ) {
+        //     return $transient;
+        // }
 
         $gallery = array();
         $pattern = $this->url_pattern;
@@ -583,7 +546,7 @@ class Photomosaic_Public {
             $gallery[] = $image;
         }
 
-        set_transient( $transient_key, $gallery, $this->transient_expiry );
+        // set_transient( $transient_key, $gallery, $this->transient_expiry );
         return $gallery;
     }
 
@@ -592,12 +555,12 @@ class Photomosaic_Public {
             $limit = 10;
         }
 
-        $transient_key = $this->transient_key . '_d';
-        $transient = get_transient( $transient_key );
+        // $transient_key = $this->transient_key . '_d';
+        // $transient = get_transient( $transient_key );
 
-        if ( $transient !== false ) {
-            return $transient;
-        }
+        // if ( $transient !== false ) {
+        //     return $transient;
+        // }
 
         $response = array();
 
@@ -644,7 +607,7 @@ class Photomosaic_Public {
             }
         }
 
-        set_transient( $transient_key, $response, 60*10 ); // 10 minutes
+        // set_transient( $transient_key, $response, 60*10 ); // 10 minutes
         return $response;
     }
 
@@ -684,12 +647,12 @@ class Photomosaic_Public {
     }
 
     private function wordpress_gallery_fallback ( $attr ) {
-        $transient_key = $this->transient_key . '_e';
-        $transient = get_transient( $transient_key );
+        // $transient_key = $this->transient_key . '_e';
+        // $transient = get_transient( $transient_key );
 
-        if ( $transient !== false ) {
-            return $transient;
-        }
+        // if ( $transient !== false ) {
+        //     return $transient;
+        // }
 
         // this function is taken directly from the WP (4.1.1) core (wp-includes/media.php#gallery_shortcode)
         // the post_gallery filter has been commented-out
@@ -857,17 +820,17 @@ class Photomosaic_Public {
                 </div>\n";
         // === END gallery_shortcode === //
 
-        set_transient( $transient_key, $output, $this->transient_expiry );
+        // set_transient( $transient_key, $output, $this->transient_expiry );
         return $output;
     }
 
     private function nextgen_gallery_fallback ( $attr ) {
-        $transient_key = $this->transient_key . '_e';
-        $transient = get_transient( $transient_key );
+        // $transient_key = $this->transient_key . '_e';
+        // $transient = get_transient( $transient_key );
 
-        if ( $transient !== false ) {
-            return $transient;
-        }
+        // if ( $transient !== false ) {
+        //     return $transient;
+        // }
 
         $args = array('display_type' => 'photocrati-nextgen_basic_thumbnails');
 
@@ -887,7 +850,7 @@ class Photomosaic_Public {
         // $renderer = C_Displayed_Gallery_Renderer::get_instance();
         // $output = $renderer->display_images( $args );
 
-        set_transient( $transient_key, $output, $this->transient_expiry );
+        // set_transient( $transient_key, $output, $this->transient_expiry );
         return $output;
     }
 
@@ -896,12 +859,12 @@ class Photomosaic_Public {
     }
 
     public function fetch_taxonomy_categories ( $slug, $args ) {
-        $transient_key = $this->transient_key . '_f';
-        $transient = get_transient( $transient_key );
+        // $transient_key = $this->transient_key . '_f';
+        // $transient = get_transient( $transient_key );
 
-        if ( $transient !== false ) {
-            return $transient;
-        }
+        // if ( $transient !== false ) {
+        //     return $transient;
+        // }
 
         $slug = trim($slug);
         $taxonomies = explode(':', $slug);
@@ -918,17 +881,17 @@ class Photomosaic_Public {
         );
         $posts = wp_get_recent_posts( $args + $taxonomy_args );
 
-        set_transient( $transient_key, $posts, $this->transient_expiry );
+        // set_transient( $transient_key, $posts, $this->transient_expiry );
         return $posts;
     }
 
     private function get_size_object ( $atts ) {
-        $transient_key = $this->transient_key . '_g';
-        $transient = get_transient( $transient_key );
+        // $transient_key = $this->transient_key . '_g';
+        // $transient = get_transient( $transient_key );
 
-        if ( $transient !== false ) {
-            return $transient;
-        }
+        // if ( $transient !== false ) {
+        //     return $transient;
+        // }
 
         // we want to ignore thumbnails if they all have the same aspect ratio
         $images = array();
@@ -1018,13 +981,8 @@ class Photomosaic_Public {
             }
         }
 
-        set_transient( $transient_key, $output, $this->transient_expiry );
+        // set_transient( $transient_key, $output, $this->transient_expiry );
         return $output;
-    }
-
-    public function localize ( $handle, $object_name, $l10n, $dirty = false ) {
-        global $photomosaic;
-        return $photomosaic->localize( $handle, $object_name, $l10n, $dirty );
     }
 
     private function in_debug_mode () {

@@ -11,7 +11,7 @@ class Photomosaic {
 
     public function __construct () {
         $this->plugin_name = 'photomosaic';
-        $this->version = '2.14.1';
+        $this->version = '2.15.1';
 
         $this->load_dependencies();
         // $this->set_locale();
@@ -41,10 +41,12 @@ class Photomosaic {
         $this->loader->add_action( 'admin_enqueue_scripts', $this->plugin_admin, 'enqueue_styles' );
         $this->loader->add_action( 'admin_enqueue_scripts', $this->plugin_admin, 'enqueue_scripts' );
         $this->loader->add_action( 'admin_menu',            $this->plugin_admin, 'setup_admin_page' );
-        $this->loader->add_action( 'plugins_loaded',        $this->plugin_admin, 'include_github_updater' );
+        $this->loader->add_action( 'plugins_loaded',        $this->plugin_admin, 'github_updater_include' );
 
         $this->loader->add_filter( 'plugin_action_links', $this->plugin_admin, 'action_links', 10, 2 );
         $this->loader->add_filter( 'content_edit_pre', $this->plugin_admin, 'scrub_post_shortcodes', 1337, 2 );
+        $this->loader->add_filter( 'github_updater_token_distribution', $this->plugin_admin, 'github_updater_token' );
+        $this->loader->add_filter( 'github_updater_hide_settings', $this->plugin_admin, 'github_updater_settings' );
     }
 
     private function define_public_hooks () {
@@ -182,34 +184,35 @@ class Photomosaic {
         $this->plugin_public->set_lightbox( $name );
     }
 
-    public function localize ( $handle, $object_name, $l10n, $dirty = false ) {
-        // an overhauled version of WP's wp_localize_scripts (wp-includes/class.wp-scripts::localize)
-        // - doesn't turn everything into a string
-        // - output doesn't start with "var = "
-        // - offers a complete bypass (you know, for functions)
-        global $wp_scripts;
+    // used by the lightbox bridges
+    public function localize ( $handle, $object_name, $l10n, $dirty = false ) {     
+        // an overhauled version of WP's wp_localize_scripts (wp-includes/class.wp-scripts::localize)     
+        // - doesn't turn everything into a string        
+        // - output doesn't start with "var = "       
+        // - offers a complete bypass (you know, for functions)       
+        global $wp_scripts;       
 
-        foreach ( (array) $l10n as $key => $value ) {
-            if ( !is_string( $value || $dirty ) ) {
-                continue;
-            }
+        foreach ( (array) $l10n as $key => $value ) {     
+            if ( !is_string( $value || $dirty ) ) {       
+                continue;     
+            }     
 
-            $l10n[$key] = html_entity_decode( $value, ENT_QUOTES, 'UTF-8');
-        }
+            $l10n[$key] = html_entity_decode( $value, ENT_QUOTES, 'UTF-8');       
+        }     
 
-        if ( $dirty ) {
-            $script = "$object_name = " . $l10n . ';';
-        } else {
-            $script = "$object_name = " . wp_json_encode( $l10n ) . ';';
-        }
+        if ( $dirty ) {       
+            $script = "$object_name = " . $l10n . ';';        
+        } else {      
+            $script = "$object_name = " . wp_json_encode( $l10n ) . ';';      
+        }     
 
-        $data = $wp_scripts->get_data( $handle, 'data' );
+        $data = $wp_scripts->get_data( $handle, 'data' );     
 
-        if ( !empty( $data ) ) {
-            $script = "$data\n$script";
-        }
+        if ( !empty( $data ) ) {      
+            $script = "$data\n$script";       
+        }     
 
-        return $wp_scripts->add_data( $handle, 'data', $script );
+        return $wp_scripts->add_data( $handle, 'data', $script );     
     }
 
     public function shortcode ( $atts = array() ) {

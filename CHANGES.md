@@ -1,5 +1,11 @@
 ### What's New
 
+#### 2.15.1
+- Bug Fix : corrects bug that prevented the lightbox from being turned-off via Inline Attributes
+
+#### 2.15
+- Enhancement : better support for galleries loaded via AJAX
+
 #### 2.14
 - Bug Fix : updates dependencies that threw errors in PHP7
 
