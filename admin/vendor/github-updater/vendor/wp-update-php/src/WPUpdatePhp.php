@@ -56,7 +56,7 @@ class WPUpdatePhp {
 		return false;
 	}
 
-	// same as above, just without the error message
+	// CUSTOM FOR PHOTOMOSAIC : same as above, just without the error message
 	public function does_it_meet_required_php_version_no_message( $version = PHP_VERSION ) {
 		if ( $this->version_passes_requirement( $this->minimum_version, $version ) ) {
 			return true;
