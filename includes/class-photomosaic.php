@@ -11,7 +11,7 @@ class Photomosaic {
 
     public function __construct () {
         $this->plugin_name = 'photomosaic';
-        $this->version = '2.15.5';
+        $this->version = '2.15.6';
 
         $this->load_dependencies();
         // $this->set_locale();
@@ -57,7 +57,7 @@ class Photomosaic {
         $this->loader->add_filter( 'widget_text', null, 'do_shortcode' );
 
         // stupid caching plugins
-        $this->loader->add_filter( 'rocket_minify_excluded_external_js', $this->plugin_public, '__fix_wprocket_excluded_external_js' )
+        $this->loader->add_filter( 'rocket_minify_excluded_external_js', $this->plugin_public, '__fix_wprocket_excluded_external_js' );
 
         $this->loader->add_shortcode( 'photoMosaic', $this->plugin_public, 'shortcode' );
         $this->loader->add_shortcode( 'photomosaic', $this->plugin_public, 'shortcode' );
